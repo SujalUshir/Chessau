@@ -432,16 +432,13 @@ def analyze_position(fen_str):
                     if eval_result:
                         etype = eval_result.get("type")
                         val   = eval_result.get("value")
-                        side  = fen_str.split()[1] if ' ' in fen_str else 'w'
+                        # Same logic as primary path — already white-positive, no flip.
                         if etype == "mate" and val is not None:
-                            sign = 1 if val > 0 else -1
-                            if side == 'b': sign = -sign
-                            result["eval_cp"] = sign * (10000 - abs(val) * 10)
+                            result["eval_cp"] = 99999 if val > 0 else -99999
                         elif etype == "cp" and val is not None:
-                            result["eval_cp"] = val if side == 'w' else -val
+                            result["eval_cp"] = val  # already white-positive
                         if result["eval_cp"] is not None:
                             result["eval_pawns"] = round(result["eval_cp"] / 100.0, 2)
-                        result["eval"]  = result["eval_cp"]
                         result["depth"] = SF_DEPTH
                     log.warning("[SF] Respawn retry result: %s", result)
                 except Exception as ex2:
@@ -485,9 +482,15 @@ def _sf_best_move_from_fen(fen_str):
     return analyze_position(fen_str)["best_move"]
 
 
+# ── Mate score cap for classification only ─────────────────────────────────────
+# The eval bar uses the raw ±99999 to pin the bar to the edge.  But for move
+# classification, a 99999cp delta is meaningless — cap at ±1500 so cp_loss
+# stays in a realistic range (mirrors chess.com behaviour).
+_CLASSIFY_MATE_CAP = 1500
+
 def _classify_move(eval_before, best_eval, eval_after, moving_color, sacrificed_material=0):
     """
-    Classify a move using delta = best_val - played_val (from moving player's view).
+    Classify a move using cp_loss from the moving player's perspective.
 
     eval_before         : SF eval BEFORE the move (white-positive centipawns)
     best_eval           : SF eval AFTER the best move (white-positive centipawns)
@@ -495,27 +498,31 @@ def _classify_move(eval_before, best_eval, eval_after, moving_color, sacrificed_
     moving_color        : 'white' | 'black'
     sacrificed_material : centipawns of own material lost in this move (>0 = sacrifice)
 
-    Classification order (highest priority first):
-      Brilliant  — sacrificed own material AND delta <= 30 cp from best
-      Best       — 0–20 cp worse than best
+    Classification thresholds (cp_loss from mover's perspective):
+      Brilliant  — sacrificed own material AND cp_loss <= 30
+      Best       — 0–20 cp
       Excellent  — 20–50 cp
       Good       — 50–100 cp
-      Inaccuracy — 100–200 cp
-      Mistake    — 200–400 cp
-      Blunder    — 400+ cp
+      Inaccuracy — 100–300 cp
+      Mistake    — 300–700 cp
+      Blunder    — 700+ cp
     """
     if best_eval is None or eval_after is None:
         return None
 
-    # Both best_eval and eval_after are white-positive centipawns.
+    # Cap mate scores so cp_loss doesn't explode to 99699.
+    be = max(-_CLASSIFY_MATE_CAP, min(_CLASSIFY_MATE_CAP, best_eval))
+    ae = max(-_CLASSIFY_MATE_CAP, min(_CLASSIFY_MATE_CAP, eval_after))
+
+    # Both be and ae are white-positive centipawns.
     # cp_loss = how many centipawns worse the played move is vs the best move,
     # expressed from the moving-player's perspective (always >= 0 when clamped).
     if moving_color == 'white':
         # White wants eval to be HIGH; loss = best possible - what happened
-        cp_loss = best_eval - eval_after
+        cp_loss = be - ae
     else:
         # Black wants eval to be LOW (white-positive); loss = what happened - best possible
-        cp_loss = eval_after - best_eval
+        cp_loss = ae - be
 
     delta = max(0, cp_loss)   # clamp — negative means played >= best (no loss)
 
