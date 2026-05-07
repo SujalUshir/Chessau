@@ -367,7 +367,7 @@ def analyze_position(fen_str):
         return _sf_cache_result
 
     log.info("[SF] query (depth=%d) — FEN: %s", SF_DEPTH, fen_str[:50])
-    result = {"best_move": None, "eval_cp": None, "eval_pawns": None}
+    result = {"best_move": None, "eval_cp": None, "eval_pawns": None, "depth": SF_DEPTH}
 
     try:
         with _sf_lock:
@@ -381,6 +381,8 @@ def analyze_position(fen_str):
                     if not STOCKFISH_OK:
                         return result   # respawn failed — give up
 
+            # ── Enforce consistent depth — the ONE place set_depth is called ──
+            _sf_instance.set_depth(SF_DEPTH)
             _sf_instance.set_fen_position(fen_str)
 
             # ── get_best_move() + get_evaluation() — stateless, version-stable ─
@@ -394,26 +396,23 @@ def analyze_position(fen_str):
             log.info("[SF] best_move=%s  eval=%s", best_uci, eval_result)
 
             # ── Parse eval ────────────────────────────────────────────────────
-            side = fen_str.split()[1] if ' ' in fen_str else 'w'
             cp   = None
 
             if eval_result:
                 etype = eval_result.get("type")
-                eval  = eval_result.get("value")
-                if etype == "mate" and eval is not None:
-                    sign = 1 if eval > 0 else -1
-                    if side == 'b':
-                        sign = -sign
-                    cp = sign * 99999
-                elif etype == "cp" and eval is not None:
-                    cp = eval
-                    if side == 'b':
-                        cp = -cp
+                val   = eval_result.get("value")
+                # get_evaluation() already returns WHITE-positive (library normalises
+                # internally: compare = -1 when black to move). No flip needed here.
+                if etype == "mate" and val is not None:
+                    cp = 99999 if val > 0 else -99999
+                elif etype == "cp" and val is not None:
+                    cp = val   # already white-positive
 
             if best_uci and len(best_uci) >= 4:
                 result["best_move"] = best_uci[:4]
             result["eval_cp"]    = cp
             result["eval_pawns"] = round(cp / 100.0, 2) if cp is not None else None
+            result["depth"]      = SF_DEPTH
 
     except Exception as ex:
         log.error("[SF] analyze_position EXCEPTION: %s", ex, exc_info=True)
@@ -424,6 +423,7 @@ def analyze_position(fen_str):
             if STOCKFISH_OK and _sf_instance is not None:
                 try:
                     with _sf_lock:
+                        _sf_instance.set_depth(SF_DEPTH)
                         _sf_instance.set_fen_position(fen_str)
                         best_uci    = _sf_instance.get_best_move()
                         eval_result = _sf_instance.get_evaluation()
@@ -436,11 +436,13 @@ def analyze_position(fen_str):
                         if etype == "mate" and val is not None:
                             sign = 1 if val > 0 else -1
                             if side == 'b': sign = -sign
-                            result["eval_cp"] = sign * 99999
+                            result["eval_cp"] = sign * (10000 - abs(val) * 10)
                         elif etype == "cp" and val is not None:
                             result["eval_cp"] = val if side == 'w' else -val
                         if result["eval_cp"] is not None:
                             result["eval_pawns"] = round(result["eval_cp"] / 100.0, 2)
+                        result["eval"]  = result["eval_cp"]
+                        result["depth"] = SF_DEPTH
                     log.warning("[SF] Respawn retry result: %s", result)
                 except Exception as ex2:
                     log.error("[SF] Retry after respawn also failed: %s", ex2)
@@ -456,62 +458,17 @@ def analyze_position(fen_str):
     return result
 
 
-# ── Thin compatibility wrappers (call-sites unchanged) ─────────────────────────
+# ── Thin compatibility wrappers ───────────────────────────────────────────────
+# _sf_eval_white_pov has been REMOVED. All eval is routed through analyze_position.
 
 def _sf_eval_at_fen(fen_str):
-    """White-positive centipawn eval. Falls back to 0 (not None) if SF unavailable."""
-    cp = analyze_position(fen_str)["eval_cp"]
-    return cp  # callers handle None gracefully
+    """White-positive centipawn eval via analyze_position cache."""
+    return analyze_position(fen_str)["eval_cp"]
 
 
 def _sf_eval():
-    """Return Stockfish eval (centipawns, white-positive) for current board."""
+    """Stockfish eval (centipawns, white-positive) for current board."""
     return _sf_eval_at_fen(_fen())
-
-
-def _sf_eval_white_pov(fen_str):
-    """
-    Single-source-of-truth eval function (spec Part 1).
-    Calls Stockfish at the SAME fixed depth (SF_DEPTH) for every invocation,
-    then converts to white-positive centipawns.
-
-    Mate scores use: ±(10000 - abs(mate_in_n) * 10)
-      mate +3  →  +9970   (white mates in 3)
-      mate -2  →  -9980   (black mates in 2)
-
-    Returns None if SF is unavailable or FEN is invalid.
-    """
-    if not STOCKFISH_OK or _sf_instance is None:
-        return None
-    if not _sf_validate_fen(fen_str):
-        return None
-    side = fen_str.split()[1] if ' ' in fen_str else 'w'
-    try:
-        with _sf_lock:
-            _sf_instance.set_depth(SF_DEPTH)         # enforce consistent depth
-            _sf_instance.set_fen_position(fen_str)
-            ev = _sf_instance.get_evaluation()        # {"type": "cp"|"mate", "value": int}
-        if not ev:
-            return None
-        etype = ev.get("type")
-        val   = ev.get("value")
-        if val is None:
-            return None
-        if etype == "mate":
-            # mate +n = side-to-move mates in n → big positive from side-to-move
-            sign = 1 if val > 0 else -1
-            cp   = sign * (10000 - abs(val) * 10)
-        elif etype == "cp":
-            cp = val
-        else:
-            return None
-        # Convert from side-to-move perspective to white-positive
-        if side == 'b':
-            cp = -cp
-        return cp
-    except Exception as ex:
-        log.warning("[_sf_eval_white_pov] failed for FEN %s: %s", fen_str[:40], ex)
-        return None
 
 
 def _sf_best_move_and_eval(fen_str):
@@ -657,9 +614,11 @@ def _build_move_review_entry(pre_snap, played_uci, move_number):
     """
     Compute all review fields for one move.
 
-    Stockfish cost: 2 analyze_position() calls (fen_before + fen_after).
-    Both results are cached, so any subsequent helper that asks about the
-    same FEN (e.g. _payload's eval bar) is free.
+    Stockfish cost (exact):
+      Call 1 — analyze_position(fen_before)  → eval_before + best_move
+      Call 2 — analyze_position(fen_best)    → best_eval   (cache miss, new FEN)
+      Call 3 — analyze_position(fen_after)   → eval_after  (cache miss, new FEN)
+    All three results are cached, so subsequent callers (_payload) pay nothing.
     Fully restores global state after computation.
     """
     saved = _snap()
@@ -668,16 +627,12 @@ def _build_move_review_entry(pre_snap, played_uci, move_number):
         fen_before   = _fen()
         moving_color = engine.current_turn
 
-        # ── Step 1: eval_before at consistent depth ────────────────────────────
-        eval_before = _sf_eval_white_pov(fen_before)
+        # ── Step 1: analyze fen_before — gets eval_before AND best_move in one call
+        before_analysis = analyze_position(fen_before)
+        eval_before = before_analysis["eval_cp"]
+        best_uci    = before_analysis["best_move"]
 
-        # ── Step 2: get best move from original FEN (uses analyze_position cache) ─
-        pre_analysis = analyze_position(fen_before)
-        best_uci     = pre_analysis["best_move"]
-
-        # ── Step 3: eval_best — independent board from original FEN ───────────
-        # Apply best_uci on a TEMP snap, generate fen_best, eval at same depth.
-        # NEVER re-use the same board object that we'll use for eval_after.
+        # ── Step 2: eval_best — apply best_uci on temp board, analyze fen_best ─
         best_eval = None
         if best_uci and len(best_uci) >= 4:
             _best_snap = _snap()   # board == pre_snap at this point
@@ -686,7 +641,7 @@ def _build_move_review_entry(pre_snap, played_uci, move_number):
                     engine.board, best_uci[:2], best_uci[2:4]
                 )
                 fen_best  = _fen()
-                best_eval = _sf_eval_white_pov(fen_best)
+                best_eval = analyze_position(fen_best)["eval_cp"]
             except Exception as _bex:
                 log.warning("[build_review] fen_best eval failed: %s", _bex)
             finally:
@@ -695,7 +650,7 @@ def _build_move_review_entry(pre_snap, played_uci, move_number):
         if best_eval is None:
             best_eval = eval_before   # terminal or SF error — graceful fallback
 
-        # ── Step 4: eval_after — another independent board from original FEN ───
+        # ── Step 3: eval_after — apply played_uci on board, analyze fen_after ─
         # Board is currently at pre_snap (restored above); apply played_uci.
         own_material_before = _material_score(engine.board, moving_color)
 
@@ -710,7 +665,7 @@ def _build_move_review_entry(pre_snap, played_uci, move_number):
 
         engine.move_piece_notation(engine.board, played_uci[:2], played_uci[2:4])
         fen_after  = _fen()
-        eval_after = _sf_eval_white_pov(fen_after)
+        eval_after = analyze_position(fen_after)["eval_cp"]
 
         if eval_after is None:
             eval_after = eval_before   # SF error — fallback
@@ -759,6 +714,8 @@ def _build_move_review_entry(pre_snap, played_uci, move_number):
         }
     except Exception as ex:
         log.error("[build_move_review_entry error] %s", ex)
+        # NOTE: moving_color is captured at function entry (before any board mutation)
+        # and stored in a local variable, so it is always the correct value here.
         return {
             "move_number":         move_number,
             "played":              played_uci,
@@ -767,7 +724,7 @@ def _build_move_review_entry(pre_snap, played_uci, move_number):
             "eval_after":          None,
             "best_eval":           None,
             "classification":      None,
-            "moving_color":        engine.current_turn,
+            "moving_color":        moving_color,
             "sacrificed_material": 0,
             "eval_before_cp":      None,
             "eval_after_cp":       None,
@@ -979,7 +936,10 @@ def human_move():
     history_entry["snap"] = pre_snap
     _move_history.append(history_entry)
 
-    payload = _payload(with_sf=True)
+    # eval_sf is reused from the review's eval_after_cp — already cached by
+    # analyze_position(fen_after) inside _build_move_review_entry, zero extra SF cost.
+    payload = _payload(with_sf=False)
+    payload["eval_sf"] = review["eval_after_cp"]
     # eval_before_sf / eval_after_sf kept for backward compat with board.js
     payload["eval_before_sf"]   = review["eval_before_cp"]
     payload["eval_before_engine"] = _engine_eval()   # already applied
@@ -1035,7 +995,8 @@ def engine_move():
     history_entry["snap"] = pre_snap
     _move_history.append(history_entry)
 
-    payload = {"engine_move": {"from": fr, "to": to}, **_payload(with_sf=True)}
+    payload = {"engine_move": {"from": fr, "to": to}, **_payload(with_sf=False)}
+    payload["eval_sf"] = review["eval_after_cp"]
     payload["eval_before_sf"]     = review["eval_before_cp"]
     payload["eval_before_engine"] = _engine_eval()
     payload["move_from"]          = fr
@@ -1121,7 +1082,8 @@ def sf_move():
         history_entry["snap"] = pre_snap
         _move_history.append(history_entry)
 
-        payload = {"engine_move": {"from": fr, "to": to}, **_payload(with_sf=True)}
+        payload = {"engine_move": {"from": fr, "to": to}, **_payload(with_sf=False)}
+        payload["eval_sf"] = review["eval_after_cp"]
         payload["eval_before_sf"]     = review["eval_before_cp"]
         payload["eval_before_engine"] = _engine_eval()
         payload["move_from"]          = fr
