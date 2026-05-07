@@ -154,6 +154,10 @@ const Board = (() => {
   let _bmPending     = false;
   let $bmPanel       = null;
 
+  /* opening book UX state */
+  let _inBook   = false;   // true while engine is playing book moves
+  let _leftBook = false;   // true once we've already shown "Out of Book" this game
+
   let _hintFrom      = null;
   let _hintTo        = null;
   let _prevBestFrom  = null;
@@ -336,20 +340,52 @@ const Board = (() => {
   /* ════════════════════════════════════════════
      OPENING RECOGNITION
   ════════════════════════════════════════════ */
-  async function _updateOpening(){
+  function _showOutOfBook(){
+    // Show a brief "Out of Book" toast — only once per game.
+    if(_leftBook) return;
+    _leftBook = true;
+    const toast = document.createElement('div');
+    toast.className = 'book-exit-toast';
+    toast.textContent = '\uD83D\uDCCB Out of Book';
+    document.body.appendChild(toast);
+    setTimeout(()=>{ toast.classList.add('book-exit-fade'); }, 1800);
+    setTimeout(()=>{ toast.remove(); }, 2300);
+  }
+
+  async function _updateOpening(inBookOverride){
+    // inBookOverride: boolean from engine response (true = book move, false = engine calc)
+    // undefined = human move, don't touch book badge
     if(!$openingEl) return;
+
+    // Handle book-state transitions when we know the answer from the payload
+    if(inBookOverride === true){
+      _inBook = true;
+    } else if(inBookOverride === false){
+      if(_inBook) _showOutOfBook();  // was in book, just left it
+      _inBook = false;
+    }
+
     try{
       const data = await GET('/opening');
+      if(!$openingEl) return;  // guard against navigate-away
+
       if(data.name){
-        const eco  = data.eco  ? ` (${data.eco})`  : '';
-        $openingEl.textContent = data.name + eco;
+        const eco = data.eco ? `<span class="ob-eco">(${data.eco})</span>` : '';
+        const badge = _inBook
+          ? '<span class="ob-badge">📘 Book Move</span>'
+          : '';
+        $openingEl.innerHTML = `<span class="ob-name">${data.name}</span>${eco}${badge}`;
+        $openingEl.classList.remove('hidden');
+      } else if(_inBook){
+        // In book but opening name not yet found (very early moves)
+        $openingEl.innerHTML = '<span class="ob-badge">📘 Book Move</span>';
         $openingEl.classList.remove('hidden');
       } else {
-        $openingEl.textContent = '';
+        $openingEl.innerHTML = '';
         $openingEl.classList.add('hidden');
       }
     }catch(e){
-      $openingEl.textContent = '';
+      $openingEl.innerHTML = '';
       $openingEl.classList.add('hidden');
     }
   }
@@ -362,7 +398,7 @@ const Board = (() => {
     halfMoves.push(uci);
     reviewData.push(review || null);
     _renderMoveList();
-    _updateOpening();
+    _updateOpening();  // human move — no inBookOverride; book badge unchanged
   }
 
   function _fmtEval(val){
@@ -794,6 +830,8 @@ const Board = (() => {
         const review = data.review || null;
         _pushMove(mv.from+mv.to, review);
         lastMove={from:mv.from,to:mv.to};
+        // Update opening + book badge using the payload flag (no extra network call)
+        _updateOpening(data.in_book === true);
       }
       applyState(data);
       if(data.status==='check') playSound('check');
@@ -1156,6 +1194,8 @@ const Board = (() => {
     _engineDepth=opts.engineDepth||3;
     _clearHint(); _prevBestFrom=null; _prevBestTo=null;
     _hintPending=false;
+    _inBook   = false;
+    _leftBook  = false;
     _bmMode='none'; _bmPending=false;
 
     if($histSf)  $histSf.innerHTML='';
@@ -1197,7 +1237,9 @@ const Board = (() => {
     _bmPending=false;
     if($histSf)    $histSf.innerHTML='';
     if($bmPanel)   $bmPanel.innerHTML='';
-    if($openingEl){ $openingEl.textContent=''; $openingEl.classList.add('hidden'); }
+    if($openingEl){ $openingEl.innerHTML=''; $openingEl.classList.add('hidden'); }
+    _inBook  = false;
+    _leftBook = false;
     setStatus('dot-t','Resetting…');
     const data=await GET('/state');
     applyState(data);

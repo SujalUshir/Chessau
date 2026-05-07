@@ -1240,7 +1240,7 @@ def engine_move():
                 history_entry = dict(review)
                 history_entry["snap"] = pre_snap
                 _move_history.append(history_entry)
-                payload = {"engine_move": {"from": fr, "to": to}, "book": True, **_payload(with_sf=False)}
+                payload = {"engine_move": {"from": fr, "to": to}, "in_book": True, **_payload(with_sf=False)}
                 payload["eval_sf"]             = review["eval_after_cp"]
                 payload["eval_before_sf"]      = review["eval_before_cp"]
                 payload["eval_before_engine"]  = _engine_eval()
@@ -1285,7 +1285,7 @@ def engine_move():
     history_entry["snap"] = pre_snap
     _move_history.append(history_entry)
 
-    payload = {"engine_move": {"from": fr, "to": to}, **_payload(with_sf=False)}
+    payload = {"engine_move": {"from": fr, "to": to}, "in_book": False, **_payload(with_sf=False)}
     payload["eval_sf"] = review["eval_after_cp"]
     payload["eval_before_sf"]     = review["eval_before_cp"]
     payload["eval_before_engine"] = _engine_eval()
@@ -1318,6 +1318,7 @@ def sf_move():
 
         # ── Try opening book first ────────────────────────────────────────
         uci = _book_move(fen_str)
+        is_book_move = bool(uci)
         if uci:
             log.info("[book] SF route using book move: %s", uci)
         else:
@@ -1366,7 +1367,7 @@ def sf_move():
         history_entry["snap"] = pre_snap
         _move_history.append(history_entry)
 
-        payload = {"engine_move": {"from": fr, "to": to}, **_payload(with_sf=False)}
+        payload = {"engine_move": {"from": fr, "to": to}, "in_book": is_book_move, **_payload(with_sf=False)}
         payload["eval_sf"] = review["eval_after_cp"]
         payload["eval_before_sf"]     = review["eval_before_cp"]
         payload["eval_before_engine"] = _engine_eval()
