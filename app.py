@@ -2,12 +2,21 @@
 Chess Engine — Flask Backend
 python app.py
 """
-import copy, traceback, os, json, datetime, threading, math
+import copy, traceback, os, json, datetime, threading, math, random, struct
 from flask import Flask, jsonify, request, render_template, send_from_directory
 import engine
 import logging
 logging.basicConfig(level=logging.WARNING)
 log = logging.getLogger(__name__)
+
+# python-chess (for Polyglot book) — optional, graceful fallback if missing
+try:
+    import chess
+    import chess.polyglot
+    CHESS_LIB_OK = True
+except ImportError:
+    CHESS_LIB_OK = False
+    log.warning("[book] python-chess not installed — opening book disabled")
 
 PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -25,6 +34,130 @@ def _ensure_save_file():
 _ensure_save_file()
 
 app = Flask(__name__)
+
+# ── Opening book (Polyglot .bin) ───────────────────────────────────────────────────
+BOOK_PATH = os.path.join(PROJECT_DIR, "books", "Titans.bin")
+BOOK_OK   = False
+
+if CHESS_LIB_OK and os.path.exists(BOOK_PATH):
+    try:
+        # Probe once to confirm the file is a valid Polyglot book
+        with chess.polyglot.open_reader(BOOK_PATH) as _probe:
+            BOOK_OK = True
+        log.info("[book] Titans.bin loaded OK")
+    except Exception as _be:
+        log.warning("[book] Titans.bin failed to open: %s", _be)
+else:
+    log.info("[book] Titans.bin not found or chess lib missing — book disabled")
+
+
+def _book_move(fen_str):
+    """
+    Look up fen_str in Titans.bin.  Returns a UCI string (e.g. 'e2e4') or None.
+    Uses weighted random selection so games don't repeat identically.
+    Silently returns None on any error (file corrupt, position not found, etc).
+    """
+    if not BOOK_OK:
+        return None
+    try:
+        board = chess.Board(fen_str)
+        with chess.polyglot.open_reader(BOOK_PATH) as reader:
+            entries = list(reader.find_all(board))
+        if not entries:
+            return None
+        # Weighted random — weight = entry.weight (higher = more commonly played)
+        weights = [max(1, e.weight) for e in entries]
+        chosen  = random.choices(entries, weights=weights, k=1)[0]
+        uci = chosen.move.uci()
+        log.info("[book] hit: FEN=%s -> %s (weight=%d, %d candidates)",
+                 fen_str[:40], uci, chosen.weight, len(entries))
+        return uci
+    except Exception as ex:
+        log.warning("[book] lookup error: %s", ex)
+        return None
+
+
+# ── ECO opening recognition ───────────────────────────────────────────────────────────
+# Loaded once at startup from books/eco/*.tsv (format: eco TAB name TAB pgn)
+# _ECO_TABLE is a list of (move_list, eco, name) sorted by move_list length DESC
+# so longest-match wins.
+_ECO_TABLE = []   # [(moves_tuple, eco_str, name_str), ...]
+
+def _pgn_to_uci_moves(pgn_line):
+    """
+    Convert a PGN move sequence like '1. e4 e5 2. Nf3' into a list of UCI strings
+    using python-chess.  Returns [] on any parse error.
+    """
+    if not CHESS_LIB_OK:
+        return []
+    try:
+        board = chess.Board()
+        uci_moves = []
+        import chess.pgn, io
+        game = chess.pgn.read_game(io.StringIO(f"[Event \"?\"]\ \n\n{pgn_line}"))
+        if not game:
+            return []
+        node = game
+        while node.variations:
+            node = node.variations[0]
+            uci_moves.append(node.move.uci())
+        return uci_moves
+    except Exception:
+        return []
+
+
+def _load_eco_table():
+    eco_dir = os.path.join(PROJECT_DIR, "books", "eco")
+    if not os.path.isdir(eco_dir):
+        log.warning("[ECO] eco directory not found")
+        return
+    rows = []
+    for fname in os.listdir(eco_dir):
+        if not fname.endswith(".tsv"):
+            continue
+        fpath = os.path.join(eco_dir, fname)
+        try:
+            with open(fpath, encoding="utf-8") as f:
+                for line in f:
+                    parts = line.rstrip("\n").split("\t")
+                    if len(parts) < 3:
+                        continue
+                    eco_code, name, pgn = parts[0], parts[1], parts[2]
+                    if eco_code == "eco":   # header row
+                        continue
+                    moves = _pgn_to_uci_moves(pgn)
+                    if moves:
+                        rows.append((tuple(moves), eco_code, name))
+        except Exception as ex:
+            log.warning("[ECO] failed to load %s: %s", fname, ex)
+    # Sort longest-first so longest match wins
+    rows.sort(key=lambda r: len(r[0]), reverse=True)
+    _ECO_TABLE.extend(rows)
+    log.info("[ECO] loaded %d openings", len(_ECO_TABLE))
+
+
+# Load ECO table at startup (runs once, takes ~2-4s due to PGN parsing)
+_load_eco_table()
+
+
+# In-memory list of game move UCIs for opening tracking (reset with board).
+_game_uci_moves: list = []
+
+
+def _match_opening(uci_moves):
+    """
+    Return (eco_code, name) for the longest matching ECO opening, or (None, None).
+    Compares _game_uci_moves against _ECO_TABLE using longest-prefix match.
+    """
+    if not _ECO_TABLE or not uci_moves:
+        return None, None
+    moves_tuple = tuple(uci_moves)
+    for entry_moves, eco, name in _ECO_TABLE:   # already sorted longest-first
+        n = len(entry_moves)
+        if len(moves_tuple) >= n and moves_tuple[:n] == entry_moves:
+            return eco, name
+    return None, None
+
 
 # ── Mate sentinel constant ─────────────────────────────────────────────────────
 MATE_SCORE = -999.99
@@ -673,6 +806,7 @@ def _reset_globals():
     engine.killer_moves = [[None, None] for _ in range(50)]
     engine.position_history[engine.hash_board(engine.board, engine.current_turn)] = 1
     _fullmove_counter = 1
+    _game_uci_moves.clear()   # reset opening tracker
 
 def _best_move_from_snap(s):
     """Temporarily restore snap, run engine search, restore back."""
@@ -1023,8 +1157,10 @@ def human_move():
     if promotion:
         r2_promo, c2_promo = engine.notation_to_index(to)
         engine.board[r2_promo][c2_promo] = promotion
+    _game_uci_moves.append(fr + to)   # track for opening recognition (4-char UCI, no promo suffix)
     # Record position ONCE for this real game move (not during analysis/review).
     _record_real_move_position(played_uci)
+
 
     # Increment fullmove counter after Black's move
     # (turn has already flipped; "white" now means Black just moved)
@@ -1061,6 +1197,13 @@ def human_move():
     }
     return jsonify(payload)
 
+@app.get("/opening")
+def opening_name():
+    """Return the current opening name and ECO code based on move history."""
+    eco, name = _match_opening(_game_uci_moves)
+    return jsonify({"eco": eco, "name": name})
+
+
 @app.post("/move/engine")
 def engine_move():
     global _fullmove_counter
@@ -1070,6 +1213,51 @@ def engine_move():
     if not moves:
         return jsonify({"error": "no legal moves"}), 400
 
+    # ── Try opening book first ─────────────────────────────────────────
+    book_uci = _book_move(_fen())
+    if book_uci and len(book_uci) >= 4:
+        fr, to = book_uci[:2], book_uci[2:4]
+        # Validate the book move is legal on the current board
+        try:
+            r1, c1 = engine.notation_to_index(fr)
+            r2, c2 = engine.notation_to_index(to)
+            piece  = engine.board[r1][c1]
+            if (piece != '.' and
+                    engine.is_valid_move(engine.board, r1, c1, r2, c2, piece) and
+                    not engine.move_puts_own_king_in_check(engine.board, r1, c1, r2, c2, piece)):
+                played_uci  = fr + to
+                pre_snap    = _snap()
+                move_number = len(_move_history) + 1
+                review = _build_move_review_entry(pre_snap, played_uci, move_number)
+                _undo_stack.append(_snap_full())
+                _redo_stack.clear()
+                engine.move_piece_notation(engine.board, fr, to)
+                _game_uci_moves.append(played_uci)
+                _record_real_move_position(played_uci)
+                if engine.current_turn == "white":
+                    _fullmove_counter += 1
+                history_entry = dict(review)
+                history_entry["snap"] = pre_snap
+                _move_history.append(history_entry)
+                payload = {"engine_move": {"from": fr, "to": to}, "book": True, **_payload(with_sf=False)}
+                payload["eval_sf"]             = review["eval_after_cp"]
+                payload["eval_before_sf"]      = review["eval_before_cp"]
+                payload["eval_before_engine"]  = _engine_eval()
+                payload["move_from"]           = fr
+                payload["move_to"]             = to
+                payload["review"]              = {
+                    "move": played_uci, "best": review["best"],
+                    "eval_before": review["eval_before"], "eval_after": review["eval_after"],
+                    "best_eval": review["best_eval"], "classification": review["classification"],
+                    "moving_color": review["moving_color"],
+                    "eval_before_cp": review["eval_before_cp"], "eval_after_cp": review["eval_after_cp"],
+                    "best_eval_cp": review["best_eval_cp"],
+                }
+                return jsonify(payload)
+        except Exception as _bex:
+            log.warning("[book] engine book move validation failed: %s", _bex)
+
+    # ── Fallback: normal engine calculation ──────────────────────────────
     result = engine.iterative_deepening(engine.board, depth)
     if not result:
         return jsonify({"error": "engine found no move"}), 500
@@ -1085,6 +1273,7 @@ def engine_move():
     _undo_stack.append(_snap_full())
     _redo_stack.clear()
     engine.move_piece_notation(engine.board, fr, to)
+    _game_uci_moves.append(played_uci)
     # Record position ONCE for this real game move (not during analysis/review).
     _record_real_move_position(played_uci)
 
@@ -1126,37 +1315,32 @@ def sf_move():
     try:
         fen_str = _fen()
 
-        # ── CRITICAL: use analyze_position() NOT _sf_instance directly ──────────
-        # Calling _sf_instance.set_fen_position() + get_best_move() here and then
-        # immediately calling _build_move_review_entry() (which calls analyze_position
-        # → set_fen_position again) corrupts Stockfish's internal position state,
-        # causing get_best_move() to return None even for valid positions.
-        #
-        # analyze_position() is the single safe entry point: it holds the lock
-        # for the entire set_fen + query sequence AND caches the result by FEN,
-        # so _build_move_review_entry's two subsequent calls are free cache hits.
-        sf_result = analyze_position(fen_str)
-        uci = sf_result.get("best_move")
-
-        # Retry once with a fresh set_fen if result was None (rare corruption recovery)
-        if not uci:
-            log.warning("[SF] get_best_move returned None for FEN: %s — retrying", fen_str[:50])
-            _invalidate_sf_cache()
-            with _sf_lock:
-                _sf_instance.set_fen_position(fen_str)
-                uci = _sf_instance.get_best_move()
-            log.warning("[SF] retry result: %s", uci)
+        # ── Try opening book first ────────────────────────────────────────
+        uci = _book_move(fen_str)
+        if uci:
+            log.info("[book] SF route using book move: %s", uci)
+        else:
+            # ── No book hit: use Stockfish engine ────────────────────────
+            sf_result = analyze_position(fen_str)
+            uci = sf_result.get("best_move")
+            if not uci:
+                log.warning("[SF] get_best_move returned None for FEN: %s — retrying", fen_str[:50])
+                _invalidate_sf_cache()
+                with _sf_lock:
+                    _sf_instance.set_fen_position(fen_str)
+                    uci = _sf_instance.get_best_move()
+                log.warning("[SF] retry result: %s", uci)
 
         if not uci or len(uci) < 4:
-            return jsonify({"error": "Stockfish returned no move"}), 500
+            return jsonify({"error": "No move available"}), 500
         fr = uci[0:2]
         to = uci[2:4]
         r1, c1 = engine.notation_to_index(fr)
         r2, c2 = engine.notation_to_index(to)
         piece  = engine.board[r1][c1]
-        moving_color = engine.current_turn  # capture BEFORE move_piece_notation flips the turn
+        moving_color = engine.current_turn
         if piece == ".":
-            return jsonify({"error": f"Stockfish picked empty square {fr}"}), 500
+            return jsonify({"error": f"Move picked empty square {fr}"}), 500
 
         played_uci  = fr + to
         pre_snap    = _snap()
@@ -1169,12 +1353,11 @@ def sf_move():
         engine.move_piece_notation(engine.board, fr, to)
         if len(uci) == 5:
             promo = uci[4].upper()
-            # `moving_color` captured before the turn flipped; White promotes to uppercase.
             engine.board[r2][c2] = promo if moving_color == "white" else promo.lower()
+        _game_uci_moves.append(played_uci)
         # Record position ONCE for this real game move (not during analysis/review).
         _record_real_move_position(played_uci)
 
-        # Increment fullmove counter after Black's move
         if engine.current_turn == "white":
             _fullmove_counter += 1
 

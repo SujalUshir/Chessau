@@ -192,7 +192,8 @@ const Board = (() => {
       $undo, $redo,
       $blackName, $whiteName,
       $evalBarsEl,
-      $fenBtn;
+      $fenBtn,
+      $openingEl;   // opening name banner
 
   /* ── notation ── */
   const i2n = (r,c) => String.fromCharCode(97+c)+(8-r);
@@ -333,6 +334,27 @@ const Board = (() => {
   }
 
   /* ════════════════════════════════════════════
+     OPENING RECOGNITION
+  ════════════════════════════════════════════ */
+  async function _updateOpening(){
+    if(!$openingEl) return;
+    try{
+      const data = await GET('/opening');
+      if(data.name){
+        const eco  = data.eco  ? ` (${data.eco})`  : '';
+        $openingEl.textContent = data.name + eco;
+        $openingEl.classList.remove('hidden');
+      } else {
+        $openingEl.textContent = '';
+        $openingEl.classList.add('hidden');
+      }
+    }catch(e){
+      $openingEl.textContent = '';
+      $openingEl.classList.add('hidden');
+    }
+  }
+
+  /* ════════════════════════════════════════════
      MOVE LIST  — Stockfish move review
      reviewData[i] comes from server response.review
   ════════════════════════════════════════════ */
@@ -340,6 +362,7 @@ const Board = (() => {
     halfMoves.push(uci);
     reviewData.push(review || null);
     _renderMoveList();
+    _updateOpening();
   }
 
   function _fmtEval(val){
@@ -1120,6 +1143,7 @@ const Board = (() => {
     $evalBarsEl  = opts.evalBarsEl   || null;
     $fenBtn      = opts.fenBtn       || null;
     $bmPanel     = opts.bmPanel      || null;
+    $openingEl   = opts.openingEl    || null;
 
     selected=null; legal=[]; lastMove=null;
     capByW=[]; capByB=[]; gameOver=false; promoWait=null;
@@ -1171,8 +1195,9 @@ const Board = (() => {
     window._chkSq=null;
     _clearHint(); _prevBestFrom=null; _prevBestTo=null;
     _bmPending=false;
-    if($histSf)  $histSf.innerHTML='';
-    if($bmPanel) $bmPanel.innerHTML='';
+    if($histSf)    $histSf.innerHTML='';
+    if($bmPanel)   $bmPanel.innerHTML='';
+    if($openingEl){ $openingEl.textContent=''; $openingEl.classList.add('hidden'); }
     setStatus('dot-t','Resetting…');
     const data=await GET('/state');
     applyState(data);

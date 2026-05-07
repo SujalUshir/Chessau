@@ -538,6 +538,31 @@ nav {
 .sb-box.hidden { display: none; }
 .sb-head { padding: 7px 12px; border-bottom: 1px solid var(--border); font-size: .63rem; letter-spacing: .1em; text-transform: uppercase; color: var(--text-muted); }
 
+/* ═══════════════════════════════
+   OPENING NAME BANNER
+═══════════════════════════════ */
+#opening-bar {
+  background: linear-gradient(135deg, var(--surface) 0%, #1c1a14 100%);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  font-size: .68rem;
+  font-weight: 600;
+  color: var(--accent-lt);
+  letter-spacing: .03em;
+  line-height: 1.35;
+  position: relative;
+  animation: fadeIn .3s ease both;
+  overflow: hidden;
+}
+#opening-bar::before {
+  content: '📖 ';
+  font-size: .7rem;
+}
+#opening-bar.hidden { display: none; }
+
+
+
 .ei-row { display: flex; justify-content: space-between; align-items: center; padding: 5px 12px; font-size: .67rem; border-bottom: 1px solid var(--border)33; }
 .ei-row:last-child { border-bottom: none; }
 .ei-lbl { color: var(--text-muted); text-transform: uppercase; letter-spacing: .06em; font-size: .62rem; }

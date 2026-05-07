@@ -402,6 +402,9 @@ const App = (() => {
             <div class="bm-panel" id="bm-panel"></div>
           </div>
 
+          <!-- Opening Recognition -->
+          <div id="opening-bar" class="hidden"></div>
+
           <!-- Move Analysis with Stockfish classification -->
           <div class="sb-box" id="move-list-box">
             <div class="sb-head">Move Analysis</div>
@@ -657,6 +660,7 @@ const App = (() => {
             evalBarsEl:  document.getElementById('eval-bars'),
             fenBtn:      document.getElementById('btn-fen'),
             bmPanel:     document.getElementById('bm-panel'),
+            openingEl:   document.getElementById('opening-bar'),
             playerColor: _resolvedColor,
             engineDepth: selectedBot?.depth || 3,
           });
