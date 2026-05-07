@@ -359,39 +359,49 @@ const Board = (() => {
   }
 
   async function _updateOpening(inBookOverride){
-    // inBookOverride: true  = engine played from book
-    //                 false = engine calculated (left book)
-    //                 undefined = human move (don't change _inBook)
+    // inBookOverride: true      = engine payload says book move was played
+    //                 false     = engine payload says engine calculated (left book)
+    //                 undefined = human move or HvH — use server's data.in_book instead
     if(!$openingEl || !$openingBoxEl) return;
 
-    // Update book state BEFORE the async fetch so render uses correct flag
+    // For engine responses, update _inBook immediately (authoritative source).
+    // For human/HvH moves, defer _inBook update until we have the server response.
     if(inBookOverride === true){
       _inBook = true;
     } else if(inBookOverride === false){
-      if(_inBook) _showOutOfBook();  // transitioned: book → engine
+      if(_inBook) _showOutOfBook();   // book → engine transition
       _inBook = false;
     }
-    // inBookOverride === undefined → human move, _inBook unchanged
+    // inBookOverride === undefined → resolved below from data.in_book
 
-    let name = null, eco = null;
+    let name = null, eco = null, serverInBook = null;
     try{
       const data = await GET('/opening');
-      if(!$openingEl || !$openingBoxEl) return;  // navigated away
-      name = data.name || null;
-      eco  = data.eco  || null;
+      if(!$openingEl || !$openingBoxEl) return;   // navigated away after fetch
+      name       = data.name    || null;
+      eco        = data.eco     || null;
+      serverInBook = (data.in_book === true);
     }catch(_){
       _clearOpening();
       return;
     }
 
+    // For human/HvH moves: now apply the server's book status.
+    // This is the ONLY path that updates _inBook for HvH mode.
+    if(inBookOverride === undefined){
+      const wasInBook = _inBook;
+      _inBook = serverInBook;
+      if(wasInBook && !_inBook) _showOutOfBook();  // book → out-of-book (any mode)
+    }
+
+    // Render the opening card
     if(name){
-      // Build structured content
-      const ecoHtml   = eco  ? `<div class="ob-eco-row"><span class="ob-eco-badge">${eco}</span></div>` : '';
-      const badgeHtml = _inBook ? `<div class="ob-book-row"><span class="ob-badge">📘 Book Move</span></div>` : '';
+      const ecoHtml   = eco    ? `<div class="ob-eco-row"><span class="ob-eco-badge">${eco}</span></div>` : '';
+      const badgeHtml = _inBook? `<div class="ob-book-row"><span class="ob-badge">📘 Book Move</span></div>` : '';
       $openingEl.innerHTML = `<div class="ob-name">${name}</div>${ecoHtml}${badgeHtml}`;
       $openingBoxEl.classList.remove('hidden');
     } else if(_inBook){
-      // In book but name not known yet (move 1 before ECO has enough context)
+      // In book but ECO name not yet matched (very early moves, < 2 half-moves)
       $openingEl.innerHTML = `<div class="ob-book-row"><span class="ob-badge">📘 Book Move</span></div>`;
       $openingBoxEl.classList.remove('hidden');
     } else {
@@ -804,8 +814,6 @@ const Board = (() => {
       // Use server-computed review data
       const review = data.review || null;
       _pushMove(from+to, review);
-      // Update opening name for human move (no book override — human is never from book)
-      _updateOpening(undefined);
 
       applyState(data);
       if(data.status==='check') playSound('check');
@@ -813,8 +821,12 @@ const Board = (() => {
 
       const mode=window.App?.getMode();
       if(mode&&mode!=='hvh'){
+        // Engine modes: let _doEngineMove own the complete opening update
+        // (it calls _updateOpening with the authoritative in_book flag).
         await _doEngineMove(mode);
       } else {
+        // HvH: update opening now — server response tells us if still in book.
+        await _updateOpening(undefined);
         _updateTurnStatus();
         if(_bmMode==='previous_move')        _bmApplyPrevHint(from,to);
         else if(_bmMode==='current_position') _bmRefresh();

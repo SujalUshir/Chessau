@@ -1207,9 +1207,21 @@ def human_move():
 
 @app.get("/opening")
 def opening_name():
-    """Return the current opening name and ECO code based on move history."""
+    """Return the current opening name, ECO code, and whether the current
+    position still has book moves available (used by all game modes for
+    consistent opening-card and badge rendering)."""
     eco, name = _match_opening(_game_uci_moves)
-    return jsonify({"eco": eco, "name": name})
+    # Lightweight probe: does the current position have any book entries?
+    # Returns True even in HvH mode so all modes get consistent badge behaviour.
+    in_book = False
+    if BOOK_OK:
+        try:
+            import chess
+            with chess.polyglot.open_reader(BOOK_PATH) as reader:
+                in_book = bool(list(reader.find_all(chess.Board(_fen()))))
+        except Exception:
+            in_book = False
+    return jsonify({"eco": eco, "name": name, "in_book": in_book})
 
 
 @app.post("/move/engine")
