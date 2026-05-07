@@ -113,24 +113,30 @@ def _load_eco_table():
         log.warning("[ECO] eco directory not found")
         return
     rows = []
-    for fname in os.listdir(eco_dir):
+    for fname in sorted(os.listdir(eco_dir)):   # sorted for deterministic load order
         if not fname.endswith(".tsv"):
             continue
         fpath = os.path.join(eco_dir, fname)
+        loaded = 0
         try:
             with open(fpath, encoding="utf-8") as f:
                 for line in f:
-                    parts = line.rstrip("\n").split("\t")
+                    line = line.strip()          # strips \r\n, \n, and trailing spaces
+                    if not line:
+                        continue
+                    parts = line.split("\t")
                     if len(parts) < 3:
                         continue
-                    eco_code, name, pgn = parts[0], parts[1], parts[2]
-                    if eco_code == "eco":   # header row
+                    eco_code, name, pgn = parts[0].strip(), parts[1].strip(), parts[2].strip()
+                    if eco_code.lower() == "eco":   # header row
                         continue
                     moves = _pgn_to_uci_moves(pgn)
                     if moves:
                         rows.append((tuple(moves), eco_code, name))
+                        loaded += 1
         except Exception as ex:
             log.warning("[ECO] failed to load %s: %s", fname, ex)
+        log.info("[ECO] %s → %d openings", fname, loaded)
     # Sort longest-first so longest match wins
     rows.sort(key=lambda r: len(r[0]), reverse=True)
     _ECO_TABLE.extend(rows)
@@ -1218,14 +1224,15 @@ def engine_move():
     book_uci = _book_move(_fen())
     if book_uci and len(book_uci) >= 4:
         fr, to = book_uci[:2], book_uci[2:4]
-        # Validate the book move is legal on the current board
+        # Cross-reference against legal move list — safe and engine-agnostic
+        legal_moves = engine.generate_all_legal_moves(engine.board, engine.current_turn)
+        legal_set   = {(r1, c1, r2, c2)
+                       for (r1, c1), (r2, c2) in legal_moves}
         try:
             r1, c1 = engine.notation_to_index(fr)
             r2, c2 = engine.notation_to_index(to)
-            piece  = engine.board[r1][c1]
-            if (piece != '.' and
-                    engine.is_valid_move(engine.board, r1, c1, r2, c2, piece) and
-                    not engine.move_puts_own_king_in_check(engine.board, r1, c1, r2, c2, piece)):
+            if (r1, c1, r2, c2) in legal_set:
+                log.info("[book] engine using book move: %s", book_uci)
                 played_uci  = fr + to
                 pre_snap    = _snap()
                 move_number = len(_move_history) + 1
@@ -1255,8 +1262,10 @@ def engine_move():
                     "best_eval_cp": review["best_eval_cp"],
                 }
                 return jsonify(payload)
+            else:
+                log.warning("[book] engine book move %s not in legal set — falling back", book_uci)
         except Exception as _bex:
-            log.warning("[book] engine book move validation failed: %s", _bex)
+            log.warning("[book] engine book validation error: %s", _bex)
 
     # ── Fallback: normal engine calculation ──────────────────────────────
     result = engine.iterative_deepening(engine.board, depth)

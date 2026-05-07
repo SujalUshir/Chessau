@@ -398,7 +398,9 @@ const Board = (() => {
     halfMoves.push(uci);
     reviewData.push(review || null);
     _renderMoveList();
-    _updateOpening();  // human move — no inBookOverride; book badge unchanged
+    // NOTE: do NOT call _updateOpening() here.
+    // For engine moves it is called from _doEngineMove with the correct in_book flag.
+    // For human moves it is called explicitly from _commitMove below.
   }
 
   function _fmtEval(val){
@@ -491,6 +493,7 @@ const Board = (() => {
       _updateTurnStatus();
       _refreshEval();
       _bmRefresh();
+      _updateOpening();   // refresh opening name after undo (no book override)
     }catch(e){ setStatus('dot-x','Undo error: '+e.message); }
   }
 
@@ -506,6 +509,7 @@ const Board = (() => {
       _updateTurnStatus();
       _refreshEval();
       _bmRefresh();
+      _updateOpening();   // refresh opening name after redo (no book override)
     }catch(e){ setStatus('dot-x','Redo error: '+e.message); }
   }
 
@@ -791,6 +795,8 @@ const Board = (() => {
       // Use server-computed review data
       const review = data.review || null;
       _pushMove(from+to, review);
+      // Update opening name for human move (no book override — human is never from book)
+      _updateOpening(undefined);
 
       applyState(data);
       if(data.status==='check') playSound('check');
@@ -830,8 +836,8 @@ const Board = (() => {
         const review = data.review || null;
         _pushMove(mv.from+mv.to, review);
         lastMove={from:mv.from,to:mv.to};
-        // Update opening + book badge using the payload flag (no extra network call)
-        _updateOpening(data.in_book === true);
+        // Single authoritative update — uses payload in_book flag, no race condition
+        await _updateOpening(data.in_book === true);
       }
       applyState(data);
       if(data.status==='check') playSound('check');
