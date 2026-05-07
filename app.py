@@ -998,17 +998,31 @@ def human_move():
 
     pre_snap    = _snap()
     move_number = len(_move_history) + 1
-    played_uci  = fr + to
+    # Promotion piece sent by frontend: 'Q','R','B','N' (white) or 'q','r','b','n' (black).
+    # Lowercase for black, uppercase for white — matches engine.py piece conventions.
+    promotion = d.get("promotion", None)
+    # Normalise: accept either case, force correct case for the moving color
+    if promotion:
+        promotion = promotion.upper() if engine.current_turn == 'white' else promotion.lower()
+        if promotion.upper() not in ('Q', 'R', 'B', 'N'):
+            promotion = None   # invalid value — ignore, will fall back to queen
+    # UCI includes promotion suffix (e.g. e7e8r) for review / FEN accuracy
+    played_uci = fr + to + (promotion.lower() if promotion else '')
 
     # Compute review data BEFORE making the move on the global board
     # (includes eval_before, best_move, best_eval from pre-move FEN,
     #  and eval_after by temporarily applying the move)
     review = _build_move_review_entry(pre_snap, played_uci, move_number)
 
-    # Now actually make the move
+    # Now actually make the move.
+    # move_piece_notation always promotes to queen (Q/q) — we overwrite below.
     _undo_stack.append(_snap_full())
     _redo_stack.clear()
     engine.move_piece_notation(engine.board, fr, to)
+    # Apply chosen promotion piece (overwrite the queen placed by move_piece_notation)
+    if promotion:
+        r2_promo, c2_promo = engine.notation_to_index(to)
+        engine.board[r2_promo][c2_promo] = promotion
     # Record position ONCE for this real game move (not during analysis/review).
     _record_real_move_position(played_uci)
 
