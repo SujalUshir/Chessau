@@ -38,8 +38,11 @@ def serve_sound(filename):
 # ── Stockfish init ─────────────────────────────────────────────────────────────
 # Absolute path — independent of Gunicorn's working directory.
 SF_PATH  = os.path.join(PROJECT_DIR, "bin", "stockfish")
-# Depth 6 balances quality (~0.1-0.3s) vs depth 8 (~2-5s). Override: SF_DEPTH env var.
-SF_DEPTH = int(os.environ.get("SF_DEPTH", "4"))
+# ── Depth config ───────────────────────────────────────────────────────────────
+# LIVE depth: used for eval bar during play — must be fast.
+# REVIEW depth: used for move review / accuracy — quality matters more than speed.
+SF_DEPTH        = int(os.environ.get("SF_DEPTH", "4"))
+SF_REVIEW_DEPTH = int(os.environ.get("SF_REVIEW_DEPTH", "10"))
 
 # ── Single persistent Stockfish process — never respawned after init ───────────
 # Using one long-lived process eliminates the ~1-2s startup cost per move.
@@ -48,18 +51,19 @@ _sf_lock      = threading.Lock()
 STOCKFISH_OK  = False
 STOCKFISH_ERR = ""
 
-# ── Position analysis cache (1-entry, keyed by FEN) ───────────────────────────
+# ── Position analysis cache (keyed by (FEN, depth)) ───────────────────────────
 # Stores the result of the last analyze_position() call so that multiple
-# helpers asking about the same FEN pay the Stockfish cost only once.
-_sf_cache_fen    = None
-_sf_cache_result = None   # dict: {best_move, eval_cp, eval_pawns}
+# helpers asking about the same FEN+depth pay the Stockfish cost only once.
+# Using (FEN, depth) as key so live (depth=4) and review (depth=10) don't collide.
+_sf_cache_key    = None   # tuple: (fen_str, depth)
+_sf_cache_result = None   # dict: {best_move, eval_cp, eval_pawns, depth}
 
 
 def _invalidate_sf_cache():
     """Clear the position cache. Call whenever the board position changes
     externally (reset, undo, redo) so stale results are never returned."""
-    global _sf_cache_fen, _sf_cache_result
-    _sf_cache_fen    = None
+    global _sf_cache_key, _sf_cache_result
+    _sf_cache_key    = None
     _sf_cache_result = None
 
 
@@ -335,20 +339,21 @@ def _sf_validate_fen(fen_str):
     return True
 
 
-def analyze_position(fen_str):
+def analyze_position(fen_str, depth=None):
     """
     THE single Stockfish entry point.
-    Returns: { best_move, eval_cp, eval_pawns }
+    Returns: { best_move, eval_cp, eval_pawns, depth }
     All fields default to None if SF unavailable or position terminal.
 
-    Guarantees:
-    - Only ONE lock acquisition per real SF call (cache hits are free)
-    - Never caches a failed (all-None) result — a bad call is retried next time
-    - Detects and recovers from silent SF process crashes via health-check
-    - Falls back from get_top_moves → get_best_move if top_moves is empty
-    - Validates FEN before calling SF to avoid silent failures
+    depth: analysis depth. Defaults to SF_DEPTH (live/fast).
+           Pass SF_REVIEW_DEPTH for move review (slower, higher quality).
+
+    Cache is keyed by (FEN, depth) so live and review results don't collide.
     """
-    global _sf_cache_fen, _sf_cache_result
+    global _sf_cache_key, _sf_cache_result
+
+    if depth is None:
+        depth = SF_DEPTH
 
     if not STOCKFISH_OK or _sf_instance is None:
         return {"best_move": None, "eval_cp": None, "eval_pawns": None}
@@ -358,16 +363,16 @@ def analyze_position(fen_str):
         log.error("[SF] Invalid FEN rejected: %r", fen_str[:60])
         return {"best_move": None, "eval_cp": None, "eval_pawns": None}
 
-    # ── Cache hit (only serve if result is non-trivially good) ─────────────────
-    # Do NOT serve a cached all-None result — forces a real retry.
-    if (fen_str == _sf_cache_fen
+    # ── Cache hit (keyed by FEN + depth) ───────────────────────────────────────
+    cache_key = (fen_str, depth)
+    if (cache_key == _sf_cache_key
             and _sf_cache_result is not None
             and any(v is not None for v in _sf_cache_result.values())):
-        log.info("[SF] cache hit — FEN: %s", fen_str[:50])
+        log.info("[SF] cache hit (depth=%d) — FEN: %s", depth, fen_str[:50])
         return _sf_cache_result
 
-    log.info("[SF] query (depth=%d) — FEN: %s", SF_DEPTH, fen_str[:50])
-    result = {"best_move": None, "eval_cp": None, "eval_pawns": None, "depth": SF_DEPTH}
+    log.info("[SF] query (depth=%d) — FEN: %s", depth, fen_str[:50])
+    result = {"best_move": None, "eval_cp": None, "eval_pawns": None, "depth": depth}
 
     try:
         with _sf_lock:
@@ -381,8 +386,8 @@ def analyze_position(fen_str):
                     if not STOCKFISH_OK:
                         return result   # respawn failed — give up
 
-            # ── Enforce consistent depth — the ONE place set_depth is called ──
-            _sf_instance.set_depth(SF_DEPTH)
+            # ── Set depth per call — live vs review use different depths ──
+            _sf_instance.set_depth(depth)
             _sf_instance.set_fen_position(fen_str)
 
             # ── get_best_move() + get_evaluation() — stateless, version-stable ─
@@ -412,7 +417,7 @@ def analyze_position(fen_str):
                 result["best_move"] = best_uci[:4]
             result["eval_cp"]    = cp
             result["eval_pawns"] = round(cp / 100.0, 2) if cp is not None else None
-            result["depth"]      = SF_DEPTH
+            result["depth"]      = depth
 
     except Exception as ex:
         log.error("[SF] analyze_position EXCEPTION: %s", ex, exc_info=True)
@@ -423,7 +428,7 @@ def analyze_position(fen_str):
             if STOCKFISH_OK and _sf_instance is not None:
                 try:
                     with _sf_lock:
-                        _sf_instance.set_depth(SF_DEPTH)
+                        _sf_instance.set_depth(depth)
                         _sf_instance.set_fen_position(fen_str)
                         best_uci    = _sf_instance.get_best_move()
                         eval_result = _sf_instance.get_evaluation()
@@ -439,7 +444,7 @@ def analyze_position(fen_str):
                             result["eval_cp"] = val  # already white-positive
                         if result["eval_cp"] is not None:
                             result["eval_pawns"] = round(result["eval_cp"] / 100.0, 2)
-                        result["depth"] = SF_DEPTH
+                        result["depth"] = depth
                     log.warning("[SF] Respawn retry result: %s", result)
                 except Exception as ex2:
                     log.error("[SF] Retry after respawn also failed: %s", ex2)
@@ -447,7 +452,7 @@ def analyze_position(fen_str):
 
     # ── Only cache if we got something useful ─────────────────────────────────
     if any(v is not None for v in result.values()):
-        _sf_cache_fen    = fen_str
+        _sf_cache_key    = cache_key
         _sf_cache_result = result
     else:
         log.warning("[SF] all-None result for FEN: %s — NOT caching", fen_str[:50])
@@ -482,13 +487,73 @@ def _sf_best_move_from_fen(fen_str):
     return analyze_position(fen_str)["best_move"]
 
 
+# ── MultiPV analysis (review only) ─────────────────────────────────────────────
+# Used ONLY in _build_move_review_entry to get top 3 moves.
+# The played move is compared against ALL top moves, not just #1.
+# This prevents practical human moves from being harshly penalised.
+SF_MULTIPV = 3
+
+def _analyze_multipv(fen_str, depth=None, num_moves=None):
+    """
+    Get top N moves with evals for a position.  Used for review only.
+    Returns list of dicts: [{"move": "e2e4", "eval_cp": 30}, ...]
+    All evals are white-positive.  Falls back to single-move analysis on error.
+    """
+    if depth is None:
+        depth = SF_REVIEW_DEPTH
+    if num_moves is None:
+        num_moves = SF_MULTIPV
+    if not STOCKFISH_OK or _sf_instance is None:
+        return []
+    if not _sf_validate_fen(fen_str):
+        return []
+
+    try:
+        with _sf_lock:
+            _sf_instance.set_depth(depth)
+            _sf_instance.set_fen_position(fen_str)
+            top = _sf_instance.get_top_moves(num_moves)
+
+        if not top:
+            # Fallback: single move analysis
+            r = analyze_position(fen_str, depth=depth)
+            if r["best_move"]:
+                return [{"move": r["best_move"], "eval_cp": r["eval_cp"]}]
+            return []
+
+        result = []
+        for entry in top:
+            uci = entry.get("Move", "")
+            if not uci or len(uci) < 4:
+                continue
+            # get_top_moves already returns white-positive values
+            # (library applies perspective internally, same as get_evaluation).
+            mate = entry.get("Mate")
+            centipawn = entry.get("Centipawn")
+            if mate is not None:
+                cp = 99999 if mate > 0 else -99999
+            elif centipawn is not None:
+                cp = centipawn   # already white-positive
+            else:
+                cp = None
+            result.append({"move": uci[:4], "eval_cp": cp})
+
+        log.info("[SF] MultiPV(%d, depth=%d): %s", num_moves, depth, result)
+        return result
+
+    except Exception as ex:
+        log.warning("[SF] _analyze_multipv error: %s", ex)
+        return []
+
+
 # ── Mate score cap for classification only ─────────────────────────────────────
 # The eval bar uses the raw ±99999 to pin the bar to the edge.  But for move
 # classification, a 99999cp delta is meaningless — cap at ±1500 so cp_loss
 # stays in a realistic range (mirrors chess.com behaviour).
 _CLASSIFY_MATE_CAP = 1500
 
-def _classify_move(eval_before, best_eval, eval_after, moving_color, sacrificed_material=0):
+def _classify_move(eval_before, best_eval, eval_after, moving_color,
+                   sacrificed_material=0, multipv_evals=None):
     """
     Classify a move using cp_loss from the moving player's perspective.
 
@@ -497,6 +562,10 @@ def _classify_move(eval_before, best_eval, eval_after, moving_color, sacrificed_
     eval_after          : SF eval AFTER the played move (white-positive centipawns)
     moving_color        : 'white' | 'black'
     sacrificed_material : centipawns of own material lost in this move (>0 = sacrifice)
+    multipv_evals       : list of white-positive evals from top-N moves (optional)
+                          If provided, cp_loss is computed against the CLOSEST top move
+                          rather than just the #1 move.  This gives leniency to
+                          practical human moves that are near any strong alternative.
 
     Classification thresholds (cp_loss from mover's perspective):
       Brilliant  — sacrificed own material AND cp_loss <= 30
@@ -511,20 +580,24 @@ def _classify_move(eval_before, best_eval, eval_after, moving_color, sacrificed_
         return None
 
     # Cap mate scores so cp_loss doesn't explode to 99699.
-    be = max(-_CLASSIFY_MATE_CAP, min(_CLASSIFY_MATE_CAP, best_eval))
     ae = max(-_CLASSIFY_MATE_CAP, min(_CLASSIFY_MATE_CAP, eval_after))
 
-    # Both be and ae are white-positive centipawns.
-    # cp_loss = how many centipawns worse the played move is vs the best move,
-    # expressed from the moving-player's perspective (always >= 0 when clamped).
-    if moving_color == 'white':
-        # White wants eval to be HIGH; loss = best possible - what happened
-        cp_loss = be - ae
-    else:
-        # Black wants eval to be LOW (white-positive); loss = what happened - best possible
-        cp_loss = ae - be
+    # ── MultiPV leniency: find the MINIMUM cp_loss across all top moves ───────
+    # If the played move is close to ANY strong alternative (not just #1),
+    # use that smaller loss.  This prevents "Inaccuracy" for moves that are
+    # only slightly worse than the 2nd or 3rd best continuation.
+    candidates = [max(-_CLASSIFY_MATE_CAP, min(_CLASSIFY_MATE_CAP, best_eval))]
+    if multipv_evals:
+        for e in multipv_evals:
+            if e is not None:
+                candidates.append(max(-_CLASSIFY_MATE_CAP, min(_CLASSIFY_MATE_CAP, e)))
 
-    delta = max(0, cp_loss)   # clamp — negative means played >= best (no loss)
+    if moving_color == 'white':
+        # White wants eval HIGH → loss = best_possible - what_happened
+        delta = min(max(0, be - ae) for be in candidates)
+    else:
+        # Black wants eval LOW  → loss = what_happened - best_possible
+        delta = min(max(0, ae - be) for be in candidates)
 
     # ── Brilliant: sacrificed own material AND very close to best move ──
     if sacrificed_material > 0 and delta <= 30:
@@ -634,10 +707,18 @@ def _build_move_review_entry(pre_snap, played_uci, move_number):
         fen_before   = _fen()
         moving_color = engine.current_turn
 
-        # ── Step 1: analyze fen_before — gets eval_before AND best_move in one call
-        before_analysis = analyze_position(fen_before)
-        eval_before = before_analysis["eval_cp"]
-        best_uci    = before_analysis["best_move"]
+        # ── Step 1: MultiPV analysis at REVIEW depth ─────────────────────────
+        top_moves = _analyze_multipv(fen_before, depth=SF_REVIEW_DEPTH)
+        if top_moves:
+            eval_before = top_moves[0]["eval_cp"]
+            best_uci    = top_moves[0]["move"]
+            multipv_evals = [m["eval_cp"] for m in top_moves if m.get("eval_cp") is not None]
+        else:
+            # Fallback to single-move analysis
+            before_analysis = analyze_position(fen_before, depth=SF_REVIEW_DEPTH)
+            eval_before = before_analysis["eval_cp"]
+            best_uci    = before_analysis["best_move"]
+            multipv_evals = []
 
         # ── Step 2: eval_best — apply best_uci on temp board, analyze fen_best ─
         best_eval = None
@@ -648,7 +729,7 @@ def _build_move_review_entry(pre_snap, played_uci, move_number):
                     engine.board, best_uci[:2], best_uci[2:4]
                 )
                 fen_best  = _fen()
-                best_eval = analyze_position(fen_best)["eval_cp"]
+                best_eval = analyze_position(fen_best, depth=SF_REVIEW_DEPTH)["eval_cp"]
             except Exception as _bex:
                 log.warning("[build_review] fen_best eval failed: %s", _bex)
             finally:
@@ -672,36 +753,31 @@ def _build_move_review_entry(pre_snap, played_uci, move_number):
 
         engine.move_piece_notation(engine.board, played_uci[:2], played_uci[2:4])
         fen_after  = _fen()
-        eval_after = analyze_position(fen_after)["eval_cp"]
+        eval_after = analyze_position(fen_after, depth=SF_REVIEW_DEPTH)["eval_cp"]
 
         if eval_after is None:
             eval_after = eval_before   # SF error — fallback
 
+        # ── Step 4: classify with MultiPV leniency ────────────────────────
         classification = _classify_move(
             eval_before, best_eval, eval_after,
-            moving_color, sacrificed_material
+            moving_color, sacrificed_material,
+            multipv_evals=multipv_evals
         )
 
         if classification not in ("Brilliant", "Best") and _is_book_move(move_number, eval_before):
             classification = "Book"
 
-        # ── Mandatory debug output (Part 7) ───────────────────────────────────
+        # ── Debug output ──────────────────────────────────────────────────────
         if moving_color == "white":
             cp_loss_debug = max(0, (best_eval or 0) - (eval_after or 0))
         else:
             cp_loss_debug = max(0, (eval_after or 0) - (best_eval or 0))
 
-        print(f"[review] move={played_uci}  mover={moving_color}")
+        print(f"[review] move={played_uci}  mover={moving_color}  multipv={len(top_moves)}")
         print(f"  eval_before={eval_before}  eval_best={best_eval}  eval_after={eval_after}")
+        print(f"  multipv_evals={multipv_evals}")
         print(f"  cp_loss={cp_loss_debug}  classification={classification}")
-
-        # ── Assertions to surface degenerate pipeline states ──────────────────
-        if best_eval is not None and eval_before is not None:
-            if best_eval == eval_before:
-                print(f"  [ERROR] eval_best == eval_before ({best_eval}) — best move fallback triggered or SF returned identical eval")
-        if eval_after is not None and best_eval is not None:
-            if abs(cp_loss_debug) < 1 and played_uci != best_uci:
-                print(f"  [WARN] cp_loss ~0 but played ({played_uci}) != best ({best_uci}) — check SF cache or eval pipeline")
 
         return {
             "move_number":         move_number,

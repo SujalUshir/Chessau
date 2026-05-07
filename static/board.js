@@ -785,9 +785,30 @@ const Board = (() => {
 
   /* ════════════════════════════════════════════
      ACCURACY — computed from reviewData
-     score per move = max(0, 100 - delta/10)
-     delta = best_eval_cp - eval_after_cp from mover's view (≥0)
+     Human-feeling model:
+     - cp_loss < 20   → score ≈ 100 (tiny errors don't matter)
+     - cp_loss 20-100  → gentle slope (mild penalty)
+     - cp_loss 100-500 → steeper slope (clear penalty)
+     - cp_loss > 500   → floor at ~10 (one blunder doesn't force 0%)
+     Uses weighted average so blunders hurt but don't destroy everything.
   ════════════════════════════════════════════ */
+  /**
+   * Convert a single move's cp_loss into a 0-100 accuracy score.
+   * Designed to produce believable game-level averages:
+   *   Very clean game  → 90-98
+   *   Strong rapid      → 80-92
+   *   Average club      → 65-85
+   *   Blunder-heavy     → 30-60
+   */
+  function _moveAccuracyScore(cpLoss){
+    if(cpLoss <= 0)  return 100;
+    if(cpLoss <= 20) return 100 - cpLoss * 0.1;    // 0-20cp → 100-98 (almost perfect)
+    if(cpLoss <= 100) return 98 - (cpLoss - 20) * 0.35;  // 20-100cp → 98-70
+    if(cpLoss <= 300) return 70 - (cpLoss - 100) * 0.20;  // 100-300cp → 70-30
+    if(cpLoss <= 700) return 30 - (cpLoss - 300) * 0.04;  // 300-700cp → 30-14
+    return Math.max(5, 14 - (cpLoss - 700) * 0.01);       // 700+cp → floor at 5
+  }
+
   /** Compute accuracy stats for a single side from a filtered array of review objects. */
   function _statsForSide(revs){
     let scores=[], blunders=0, mistakes=0, inaccuracies=0, brilliants=0;
@@ -804,13 +825,10 @@ const Board = (() => {
       if(b!=null && a!=null){
         // b and a are both WHITE-positive centipawns.
         // cp_loss from mover's perspective:
-        //   White wants high eval  → loss = b - a (best possible minus what happened)
-        //   Black wants low eval   → loss = a - b (what happened minus best possible)
         const cp_loss = rev.moving_color==='white'
           ? Math.max(0, b - a)
           : Math.max(0, a - b);
-        // Exponential accuracy: perfect move = 100%, mirrors server-side formula.
-        scores.push(Math.max(0, 100 * Math.exp(-cp_loss / 300)));
+        scores.push(_moveAccuracyScore(cp_loss));
       }
     }
     const accuracy = scores.length
