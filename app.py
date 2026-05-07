@@ -92,12 +92,13 @@ def _pgn_to_uci_moves(pgn_line):
     if not CHESS_LIB_OK:
         return []
     try:
-        board = chess.Board()
-        uci_moves = []
         import chess.pgn, io
-        game = chess.pgn.read_game(io.StringIO(f"[Event \"?\"]\ \n\n{pgn_line}"))
+        # Build a minimal PGN string — avoid escaped whitespace that triggers SyntaxWarning
+        pgn_text = '[Event "?"]\n\n' + pgn_line.strip()
+        game = chess.pgn.read_game(io.StringIO(pgn_text))
         if not game:
             return []
+        uci_moves = []
         node = game
         while node.variations:
             node = node.variations[0]

@@ -197,7 +197,8 @@ const Board = (() => {
       $blackName, $whiteName,
       $evalBarsEl,
       $fenBtn,
-      $openingEl;   // opening name banner
+      $openingBoxEl,   // outer card — show/hide
+      $openingEl;      // inner content div — innerHTML
 
   /* ── notation ── */
   const i2n = (r,c) => String.fromCharCode(97+c)+(8-r);
@@ -340,6 +341,11 @@ const Board = (() => {
   /* ════════════════════════════════════════════
      OPENING RECOGNITION
   ════════════════════════════════════════════ */
+  function _clearOpening(){
+    if($openingEl)    $openingEl.innerHTML = '';
+    if($openingBoxEl) $openingBoxEl.classList.add('hidden');
+  }
+
   function _showOutOfBook(){
     // Show a brief "Out of Book" toast — only once per game.
     if(_leftBook) return;
@@ -353,40 +359,43 @@ const Board = (() => {
   }
 
   async function _updateOpening(inBookOverride){
-    // inBookOverride: boolean from engine response (true = book move, false = engine calc)
-    // undefined = human move, don't touch book badge
-    if(!$openingEl) return;
+    // inBookOverride: true  = engine played from book
+    //                 false = engine calculated (left book)
+    //                 undefined = human move (don't change _inBook)
+    if(!$openingEl || !$openingBoxEl) return;
 
-    // Handle book-state transitions when we know the answer from the payload
+    // Update book state BEFORE the async fetch so render uses correct flag
     if(inBookOverride === true){
       _inBook = true;
     } else if(inBookOverride === false){
-      if(_inBook) _showOutOfBook();  // was in book, just left it
+      if(_inBook) _showOutOfBook();  // transitioned: book → engine
       _inBook = false;
     }
+    // inBookOverride === undefined → human move, _inBook unchanged
 
+    let name = null, eco = null;
     try{
       const data = await GET('/opening');
-      if(!$openingEl) return;  // guard against navigate-away
+      if(!$openingEl || !$openingBoxEl) return;  // navigated away
+      name = data.name || null;
+      eco  = data.eco  || null;
+    }catch(_){
+      _clearOpening();
+      return;
+    }
 
-      if(data.name){
-        const eco = data.eco ? `<span class="ob-eco">(${data.eco})</span>` : '';
-        const badge = _inBook
-          ? '<span class="ob-badge">📘 Book Move</span>'
-          : '';
-        $openingEl.innerHTML = `<span class="ob-name">${data.name}</span>${eco}${badge}`;
-        $openingEl.classList.remove('hidden');
-      } else if(_inBook){
-        // In book but opening name not yet found (very early moves)
-        $openingEl.innerHTML = '<span class="ob-badge">📘 Book Move</span>';
-        $openingEl.classList.remove('hidden');
-      } else {
-        $openingEl.innerHTML = '';
-        $openingEl.classList.add('hidden');
-      }
-    }catch(e){
-      $openingEl.innerHTML = '';
-      $openingEl.classList.add('hidden');
+    if(name){
+      // Build structured content
+      const ecoHtml   = eco  ? `<div class="ob-eco-row"><span class="ob-eco-badge">${eco}</span></div>` : '';
+      const badgeHtml = _inBook ? `<div class="ob-book-row"><span class="ob-badge">📘 Book Move</span></div>` : '';
+      $openingEl.innerHTML = `<div class="ob-name">${name}</div>${ecoHtml}${badgeHtml}`;
+      $openingBoxEl.classList.remove('hidden');
+    } else if(_inBook){
+      // In book but name not known yet (move 1 before ECO has enough context)
+      $openingEl.innerHTML = `<div class="ob-book-row"><span class="ob-badge">📘 Book Move</span></div>`;
+      $openingBoxEl.classList.remove('hidden');
+    } else {
+      _clearOpening();
     }
   }
 
@@ -1187,7 +1196,8 @@ const Board = (() => {
     $evalBarsEl  = opts.evalBarsEl   || null;
     $fenBtn      = opts.fenBtn       || null;
     $bmPanel     = opts.bmPanel      || null;
-    $openingEl   = opts.openingEl    || null;
+    $openingBoxEl = opts.openingBoxEl || null;
+    $openingEl    = opts.openingEl    || null;
 
     selected=null; legal=[]; lastMove=null;
     capByW=[]; capByB=[]; gameOver=false; promoWait=null;
@@ -1206,6 +1216,7 @@ const Board = (() => {
 
     if($histSf)  $histSf.innerHTML='';
     if($bmPanel) $bmPanel.innerHTML='';
+    _clearOpening();
 
     if($undo){ const n=$undo.cloneNode(true); $undo.replaceWith(n); $undo=n; $undo.addEventListener('click',doUndo); }
     if($redo){ const n=$redo.cloneNode(true); $redo.replaceWith(n); $redo=n; $redo.addEventListener('click',doRedo); }
@@ -1243,7 +1254,7 @@ const Board = (() => {
     _bmPending=false;
     if($histSf)    $histSf.innerHTML='';
     if($bmPanel)   $bmPanel.innerHTML='';
-    if($openingEl){ $openingEl.innerHTML=''; $openingEl.classList.add('hidden'); }
+    _clearOpening();
     _inBook  = false;
     _leftBook = false;
     setStatus('dot-t','Resetting…');
