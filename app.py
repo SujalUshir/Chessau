@@ -36,7 +36,7 @@ _ensure_save_file()
 app = Flask(__name__)
 
 # ── Opening book (Polyglot .bin) ───────────────────────────────────────────────────
-BOOK_PATH = os.path.join(PROJECT_DIR, "books", "Titans.bin")
+BOOK_PATH = os.path.join(PROJECT_DIR, "books", "gm2001.bin")
 BOOK_OK   = False
 
 if CHESS_LIB_OK and os.path.exists(BOOK_PATH):
@@ -44,11 +44,12 @@ if CHESS_LIB_OK and os.path.exists(BOOK_PATH):
         # Probe once to confirm the file is a valid Polyglot book
         with chess.polyglot.open_reader(BOOK_PATH) as _probe:
             BOOK_OK = True
-        log.info("[book] Titans.bin loaded OK")
+        _book_size_kb = os.path.getsize(BOOK_PATH) // 1024
+        log.warning("[book] Loaded %s successfully (%d KB)", os.path.basename(BOOK_PATH), _book_size_kb)
     except Exception as _be:
-        log.warning("[book] Titans.bin failed to open: %s", _be)
+        log.warning("[book] %s failed to open: %s", os.path.basename(BOOK_PATH), _be)
 else:
-    log.info("[book] Titans.bin not found or chess lib missing — book disabled")
+    log.info("[book] %s not found or chess lib missing — book disabled", os.path.basename(BOOK_PATH))
 
 
 def _book_move(fen_str):
