@@ -98,8 +98,8 @@ const Board = (() => {
     if(delta <= 20)  return CLASS.BEST;
     if(delta <= 50)  return CLASS.EXCELLENT;
     if(delta <= 100) return CLASS.GOOD;
-    if(delta <= 200) return CLASS.INACCURACY;
-    if(delta <= 400) return CLASS.MISTAKE;
+    if(delta <= 300) return CLASS.INACCURACY;  // matches server threshold
+    if(delta <= 700) return CLASS.MISTAKE;     // matches server threshold
     return CLASS.BLUNDER;
   }
 
@@ -171,21 +171,18 @@ const Board = (() => {
   let _prevSfCp     = null;
 
   function _smoothEval(prev, next) {
-    if (next === null || next === undefined) return next;
-    if (prev === null || prev === undefined) return next;
-    // 80% previous + 20% new — damps single-move depth spikes without hiding sign bugs
-    return 0.8 * prev + 0.2 * next;
+    // Smoothing removed — returns the raw value immediately.
+    // The 0.8/0.2 weighted average was masking real eval changes and
+    // caused the bar to show the wrong side as winning after undo/redo.
+    return next;
   }
 
   function _applyBars(data) {
     const rawE = data.eval_engine ?? null;
     const rawS = data.eval_sf     ?? null;
-    const smoothE = _smoothEval(_prevEngineCp, rawE);
-    const smoothS = _smoothEval(_prevSfCp,     rawS);
-    if (rawE !== null) _prevEngineCp = smoothE;
-    if (rawS !== null) _prevSfCp     = smoothS;
-    _drawBar($eFill, $eVal, smoothE !== null ? smoothE : rawE);
-    _drawBar($sFill, $sVal, smoothS !== null ? smoothS : rawS);
+    // No smoothing — draw bars with the exact values returned by the server.
+    _drawBar($eFill, $eVal, rawE);
+    _drawBar($sFill, $sVal, rawS);
   }
 
   /* DOM refs */
