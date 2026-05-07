@@ -39,10 +39,13 @@ def serve_sound(filename):
 # Absolute path — independent of Gunicorn's working directory.
 SF_PATH  = os.path.join(PROJECT_DIR, "bin", "stockfish")
 # ── Depth config ───────────────────────────────────────────────────────────────
-# LIVE depth: used for eval bar during play — must be fast.
-# REVIEW depth: used for move review / accuracy — quality matters more than speed.
-SF_DEPTH        = int(os.environ.get("SF_DEPTH", "4"))
-SF_REVIEW_DEPTH = int(os.environ.get("SF_REVIEW_DEPTH", "10"))
+# LIVE depth: used for eval bar during play — fast, responsive.
+#   depth=6: ~0.05–0.15s, strong enough to catch 2–3 move tactics.
+# REVIEW depth: used for move review / accuracy — quality over speed.
+#   depth=12: ~1–3s per position, catches most 4–5 move combinations.
+# Override via Render env vars: SF_DEPTH, SF_REVIEW_DEPTH.
+SF_DEPTH        = int(os.environ.get("SF_DEPTH", "6"))
+SF_REVIEW_DEPTH = int(os.environ.get("SF_REVIEW_DEPTH", "12"))
 
 # ── Single persistent Stockfish process — never respawned after init ───────────
 # Using one long-lived process eliminates the ~1-2s startup cost per move.
