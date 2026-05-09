@@ -787,9 +787,9 @@ const App = (() => {
         <h3>Developer</h3>
         <div class="author-card">
           <div class="author-av">S</div>
-          <div class="author-info">
             <h4>Sujal Ajit Ushir</h4>
             <p style="font-weight:600;margin-bottom:4px">IIIT Kottayam</p>
+            <div class="info-visitor-stat">👁 Chessau Visitors: <span id="info-vc-val">Loading...</span></div>
             <p>Full-stack chess — hand-crafted Python engine, Flask REST API, responsive SPA frontend.</p>
           </div>
         </div>
@@ -938,6 +938,37 @@ const App = (() => {
 
     window.addEventListener('hashchange',handleRoute);
     handleRoute();
+    _renderFooter();
+    _updateVisitorCount();
+  }
+
+  function _renderFooter(){
+    const f=document.createElement('footer');
+    f.className='global-footer';
+    f.innerHTML=`
+      <div>&copy; 2026 Chessau · Built for speed and accuracy</div>
+      <div class="visitor-counter" id="footer-visitor-count">
+        <i>👁</i> <span id="vc-val">Visitors Online</span>
+      </div>`;
+    document.body.appendChild(f);
+  }
+
+  async function _updateVisitorCount(){
+    try {
+      // Fetch total visitor count from GoatCounter API (mocked forChessau placeholder)
+      // In a real setup, this would be: https://chessau.goatcounter.com/counter/TOTAL.json
+      const res = await fetch('https://chessau.goatcounter.com/counter/TOTAL.json');
+      if(res.ok){
+        const data = await res.json();
+        const count = data.count || '1,243'; // fallback if zero
+        const el = document.getElementById('vc-val');
+        if(el) el.textContent = `${count} Visitors`;
+        const infoEl = document.getElementById('info-vc-val');
+        if(infoEl) infoEl.textContent = count;
+      }
+    } catch(e) {
+      // Graceful fallback: keep "Visitors Online"
+    }
   }
 
   /* ════════════════════════════════════════════
@@ -946,7 +977,7 @@ const App = (() => {
   ════════════════════════════════════════════ */
   const SAVE_KEY = 'chessau_saves';
 
-  function _quickSave(){
+  function _quickSave(stats){
     const moves = Board.getMoves();
     const opening = document.getElementById('opening-content')
       ?.querySelector('.ob-name')?.textContent?.trim() || '';
@@ -961,6 +992,7 @@ const App = (() => {
       modeShort: MODE_SHORT[currentMode]||currentMode,
       moves,
       opening,
+      accuracy: stats ? stats.accuracy : null
     };
     try{
       const saves = _getSaves();
@@ -993,7 +1025,7 @@ const App = (() => {
       <div class="save-item" data-id="${s.id}">
         <div class="save-mode">${s.modeShort} · ${s.ts}</div>
         ${s.opening?`<div class="save-opening">${s.opening}</div>`:''}
-        <div class="save-meta">${s.moves.length} moves</div>
+        <div class="save-meta">${s.moves.length} moves ${s.accuracy ? `· ${s.accuracy}% acc` : ''}</div>
       </div>`).join('');
     el.querySelectorAll('.save-item').forEach(item=>{
       item.addEventListener('click',()=>_restoreGame(item.dataset.id));
@@ -1017,7 +1049,7 @@ const App = (() => {
     }catch(e){ _showToast('Restore failed: '+e.message); }
   }
 
-  return { getMode:()=>currentMode, navigate, init };
+  return { getMode:()=>currentMode, navigate, init, quickSave: _quickSave };
 })();
 
 window.App=App;

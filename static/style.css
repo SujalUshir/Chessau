@@ -1417,3 +1417,36 @@ nav {
 /* Info Typography Fix */
 .info-page h3 { font-family: var(--font-display); }
 .info-page p, .info-page li { font-family: var(--font-body); }
+
+/* ═══════════════════════════════════
+   FOOTER & ANALYTICS
+   ═══════════════════════════════════ */
+.global-footer {
+  margin-top: auto;
+  padding: 40px 20px 20px;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  color: var(--text-muted);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.visitor-counter {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255,255,255,0.03);
+  padding: 4px 10px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  margin-top: 10px;
+}
+.visitor-counter i { color: var(--accent-lt); font-style: normal; }
+
+.info-visitor-stat {
+  margin-top: 12px;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--accent-lt);
+}
+

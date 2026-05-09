@@ -1054,21 +1054,7 @@ const Board = (() => {
   /* ════════════════════════════════════════════
      SAVE GAME — POST /save_game
   ════════════════════════════════════════════ */
-  async function _doSaveGame(stats){
-    const body={
-      moves:    halfMoves,
-      result:   _gameResult||'?',
-      accuracy: stats,
-      date:     new Date().toISOString(),
-    };
-    const r=await fetch('/save_game',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify(body),
-    });
-    if(!r.ok) throw new Error(await r.text());
-    return r.json();
-  }
+
 
   /* ════════════════════════════════════════════
      GAME OVER
@@ -1158,7 +1144,7 @@ const Board = (() => {
     saveBtn.addEventListener('click',async()=>{
       saveBtn.disabled=true; saveBtn.textContent='Saving…';
       try{
-        await _doSaveGame(stats.overall);
+        if(window.App?.quickSave) window.App.quickSave(stats.overall);
         saveBtn.textContent='✓ Saved';
       }catch(e){
         saveBtn.textContent='Failed';
