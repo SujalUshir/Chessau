@@ -352,6 +352,7 @@ nav {
 .game-area {
   display: flex; flex-direction: row; align-items: flex-start;
   gap: 14px; width: 100%; max-width: 920px; justify-content: center;
+  position: relative; z-index: 100;
 }
 .board-col { display: flex; flex-direction: column; align-items: center; }
 
@@ -437,6 +438,9 @@ nav {
   border-radius: 2px;
   overflow: hidden;
   box-shadow: 6px 6px 0px rgba(0,0,0,0.7);
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 /* original .board-labels kept */
@@ -459,6 +463,9 @@ nav {
   cursor: pointer;
   overflow: hidden;
   transition: filter .1s;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
 .square.light { background: var(--accent-lt); }
 .square.dark  { background: var(--accent-dk); }

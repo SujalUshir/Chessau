@@ -707,6 +707,7 @@ const Board = (() => {
 
     document.addEventListener('pointermove',onDragMove);
     document.addEventListener('pointerup',  onDragEnd);
+    document.addEventListener('pointercancel', onDragEnd);
   }
   function onDragMove(e){
     if(!dragEl) return;
@@ -717,9 +718,10 @@ const Board = (() => {
   function onDragEnd(e){
     document.removeEventListener('pointermove',onDragMove);
     document.removeEventListener('pointerup',  onDragEnd);
+    document.removeEventListener('pointercancel', onDragEnd);
     if(!dragEl){ dragActive=false; dragFrom=null; return; }
     dragEl.remove(); dragEl=null;
-    if(!dragActive){ dragActive=false; dragFrom=null; return; }
+    if(e.type==='pointercancel' || !dragActive){ dragActive=false; dragFrom=null; render(); return; }
     dragActive=false;
     const target=document.elementFromPoint(e.clientX,e.clientY);
     const sqEl=target?.closest('[data-square]');
