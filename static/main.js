@@ -789,7 +789,7 @@ const App = (() => {
           <div class="author-av">S</div>
             <h4>Sujal Ajit Ushir</h4>
             <p style="font-weight:600;margin-bottom:4px">IIIT Kottayam</p>
-            <div class="info-visitor-stat">👁 Chessau Visitors: <span id="info-vc-val">Loading...</span></div>
+            <div class="info-visitor-stat">👁 Chessau Visitors: <span id="info-vc-val">Global</span></div>
             <p>Full-stack chess — hand-crafted Python engine, Flask REST API, responsive SPA frontend.</p>
           </div>
         </div>
@@ -954,20 +954,29 @@ const App = (() => {
   }
 
   async function _updateVisitorCount(){
+    const footerEl = document.getElementById('vc-val');
+    const infoEl = document.getElementById('info-vc-val');
+    
+    const setFallback = () => {
+      if(footerEl) footerEl.textContent = 'Visitors Online';
+      if(infoEl) infoEl.textContent = 'Global';
+    };
+
     try {
-      // Fetch total visitor count from GoatCounter API (mocked forChessau placeholder)
-      // In a real setup, this would be: https://chessau.goatcounter.com/counter/TOTAL.json
+      // Fetch total visitor count from GoatCounter public API
       const res = await fetch('https://chessau.goatcounter.com/counter/TOTAL.json');
       if(res.ok){
         const data = await res.json();
-        const count = data.count || '1,243'; // fallback if zero
-        const el = document.getElementById('vc-val');
-        if(el) el.textContent = `${count} Visitors`;
-        const infoEl = document.getElementById('info-vc-val');
-        if(infoEl) infoEl.textContent = count;
+        const count = data.count;
+        if(count) {
+          if(footerEl) footerEl.textContent = `${count} Visitors`;
+          if(infoEl) infoEl.textContent = count;
+          return;
+        }
       }
+      setFallback();
     } catch(e) {
-      // Graceful fallback: keep "Visitors Online"
+      setFallback();
     }
   }
 
