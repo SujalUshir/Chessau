@@ -1186,6 +1186,67 @@ nav {
 .pg-sc.pg-inaccuracy  { color: #ddbb22; border-color: #ddbb2244; }
 
 /* ═══════════════════════════════════
+   HOMEPAGE INTERACTIVE GRID
+═══════════════════════════════════ */
+.home-page { position: relative; overflow: hidden; }
+
+.home-grid-bg {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background-image:
+    linear-gradient(rgba(42,42,42,0.55) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(42,42,42,0.55) 1px, transparent 1px);
+  background-size: 48px 48px;
+  animation: gridDrift 28s linear infinite;
+}
+@keyframes gridDrift {
+  from { background-position: 0 0; }
+  to   { background-position: 48px 48px; }
+}
+/* Everything inside home-page sits above the grid */
+.home-page > *:not(.home-grid-bg) { position: relative; z-index: 1; }
+
+/* ═══════════════════════════════════
+   SAVED GAMES SIDEBAR
+═══════════════════════════════════ */
+.saved-games-list {
+  max-height: 160px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+.save-item {
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--border)33;
+  cursor: pointer;
+  transition: background .15s;
+}
+.save-item:last-child { border-bottom: none; }
+.save-item:hover { background: rgba(255,255,255,.04); }
+.save-mode  { font-size: .65rem; font-weight: 700; color: var(--accent-lt); letter-spacing: .04em; }
+.save-meta  { font-size: .58rem; color: var(--text-muted); margin-top: 1px; letter-spacing: .02em; }
+.save-opening { font-size: .6rem; color: var(--accent-dk); font-style: italic; margin-top: 1px; }
+.save-empty { padding: 10px 12px; font-size: .65rem; color: var(--text-muted); text-align: center; font-style: italic; }
+.sb-save-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 7px 12px 7px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: .63rem; letter-spacing: .1em; text-transform: uppercase; color: var(--text-muted);
+}
+.btn-save-sm {
+  font-family: var(--font-mono);
+  font-size: .58rem; letter-spacing: .08em; text-transform: uppercase;
+  padding: 2px 8px; border-radius: var(--radius);
+  border: 1px solid var(--border); cursor: pointer;
+  background: transparent; color: var(--text-muted);
+  transition: border-color .15s, color .15s;
+}
+.btn-save-sm:hover { border-color: var(--accent-dk); color: var(--accent-lt); }
+
+
+/* ═══════════════════════════════════
    RESIGN BUTTON
 ═══════════════════════════════════ */
 .btn-danger {

@@ -1462,6 +1462,35 @@ def reset():
     return jsonify(_payload(with_sf=False))
 
 
+@app.post("/load_position")
+def load_position():
+    """Restore a saved game by replaying a list of UCI moves from the start.
+    Body: { "moves": ["e2e4", "e7e5", ...] }
+    Returns the resulting board state (same shape as /state).
+    No engine analysis, no review computation — fast and side-effect-free.
+    """
+    d = request.get_json(force=True, silent=True) or {}
+    moves = d.get("moves", [])
+    _reset_globals()
+    _undo_stack.clear()
+    _redo_stack.clear()
+    _move_history.clear()
+    _invalidate_sf_cache()
+    for uci in moves:
+        if not uci or len(uci) < 4:
+            continue
+        fr, to = uci[:2], uci[2:4]
+        try:
+            engine.move_piece_notation(engine.board, fr, to)
+            _game_uci_moves.append(fr + to)
+            if engine.current_turn == "white":
+                _fullmove_counter += 1
+        except Exception as ex:
+            log.warning("[load_position] move %s failed: %s", uci, ex)
+            break
+    return jsonify(_payload(with_sf=False))
+
+
 # ── New endpoints: eval_history, accuracy, save_game ──────────────────────────
 
 @app.get("/eval_history")

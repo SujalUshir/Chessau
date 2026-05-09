@@ -1297,6 +1297,34 @@ const Board = (() => {
    * Immediately ends the game with a resignation.
    * In engine modes the human player always resigns; in HvH the current-turn player resigns.
    */
+  /** Return a copy of the current half-move list (for session saves). */
+  function getMoves(){ return halfMoves.slice(); }
+
+  /**
+   * applyRestoredState(data, moves)
+   * Used by the session-save restore flow.
+   * Applies /load_position server response and rebuilds the move list.
+   */
+  function applyRestoredState(data, moves){
+    // Rebuild internal move list (no review data — just UCI strings)
+    halfMoves  = moves ? moves.slice() : [];
+    reviewData = halfMoves.map(()=>null);
+    // Clear game-over and selection state
+    gameOver=false; selected=null; legal=[]; lastMove=null;
+    promoWait=null; _gameResult=null;
+    _inBook=false; _leftBook=false;
+    _clearHint(); _prevBestFrom=null; _prevBestTo=null;
+    _clearOpening();
+    // Apply the board position returned by the server
+    applyState(data);
+    _rebuildCap(data.board);
+    _renderMoveList();
+    _updateTurnStatus();
+    _updateOpening();
+    if($histSf)  $histSf.innerHTML='';
+    _renderMoveList();
+  }
+
   function resign(mode){
     if(gameOver) return;
     const resigningColor = (mode && mode !== 'hvh') ? playerColor : turn;
@@ -1319,5 +1347,7 @@ const Board = (() => {
     setEngineDepth,
     setBestMoveMode,
     resign,
+    getMoves,
+    applyRestoredState,
   };
 })();

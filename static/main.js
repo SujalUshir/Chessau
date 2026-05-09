@@ -124,7 +124,7 @@ const App = (() => {
     const hash=location.hash.slice(1)||'home';
     const nav=document.createElement('nav');
     nav.innerHTML=`
-      <div class="nav-logo" id="nav-logo">Chess<span>Engine</span></div>
+      <div class="nav-logo" id="nav-logo">Chess<span>au</span></div>
       <ul class="nav-links">
         <li><a href="#home" class="${hash==='home'?'active':''}">Home</a></li>
         <li><a href="#game" class="${hash==='game'?'active':''}">Play</a></li>
@@ -144,8 +144,9 @@ const App = (() => {
     for(let i=0;i<64;i++){ const r=Math.floor(i/8),c=i%8; sq+=`<span class="${(r+c)%2===0?'lt':'dk'}"></span>`; }
 
     page.innerHTML=`
+      <div class="home-grid-bg" id="home-grid-bg"></div>
       <div class="home-hero">
-        <h1>Chess<br/><em>Engine</em></h1>
+        <h1>Chess<em>au</em></h1>
         <div class="mini-board">${sq}</div>
         <p class="tagline">Choose your opponent &amp; colour</p>
       </div>
@@ -199,6 +200,30 @@ const App = (() => {
         }
       });
     });
+    // Interactive grid glow — tracks cursor position
+    {
+      const grid = page.querySelector('#home-grid-bg');
+      if(grid){
+        const onMove = e => {
+          const r = page.getBoundingClientRect();
+          const x = ((e.clientX - r.left) / r.width * 100).toFixed(1);
+          const y = ((e.clientY - r.top)  / r.height * 100).toFixed(1);
+          grid.style.backgroundImage = [
+            'linear-gradient(rgba(42,42,42,0.55) 1px, transparent 1px)',
+            'linear-gradient(90deg, rgba(42,42,42,0.55) 1px, transparent 1px)',
+            `radial-gradient(600px circle at ${x}% ${y}%, rgba(176,137,99,0.13) 0%, transparent 65%)`
+          ].join(',');
+        };
+        page.addEventListener('mousemove', onMove, {passive:true});
+        // Clean up when page is removed from DOM
+        new MutationObserver((_, obs) => {
+          if(!document.body.contains(page)){
+            page.removeEventListener('mousemove', onMove);
+            obs.disconnect();
+          }
+        }).observe(document.body, {childList:true, subtree:true});
+      }
+    }
     return page;
   }
 
@@ -416,6 +441,15 @@ const App = (() => {
             <div class="opening-content" id="opening-content"></div>
           </div>
 
+          <!-- Saved Games -->
+          <div class="sb-box" id="saved-games-box">
+            <div class="sb-save-head">
+              <span>📌 Saves</span>
+              <button class="btn-save-sm" id="btn-quicksave">Save</button>
+            </div>
+            <div class="saved-games-list" id="saved-games-list"><div class="save-empty">No saves yet</div></div>
+          </div>
+
           <!-- Move Analysis with Stockfish classification -->
           <div class="sb-box" id="move-list-box">
             <div class="sb-head">Move Analysis</div>
@@ -593,12 +627,12 @@ const App = (() => {
     const page=document.createElement('div');
     page.className='page info-page';
     page.innerHTML=`
-      <h2>About This Project</h2>
-      <p class="sub">Chess Engine — Built from scratch using Flask &amp; Stockfish</p>
+      <h2>About Chessau</h2>
+      <p class="sub">Chessau — Built from scratch using Flask &amp; Stockfish</p>
       <div class="info-sec">
         <h3>About</h3>
         <ul class="feat-list">
-          <li>This is a chess engine web application built using Flask and Stockfish.</li>
+          <li>Chessau is a chess engine web application built using Flask and Stockfish.</li>
           <li>It allows users to play chess with real-time engine analysis.</li>
         </ul>
       </div>
@@ -715,6 +749,8 @@ const App = (() => {
           document.getElementById('btn-settings').addEventListener('click', showSettings);
           document.getElementById('btn-home')    .addEventListener('click', ()=>navigate('home'));
           document.getElementById('btn-resign')  .addEventListener('click', ()=>Board.resign(currentMode));
+          document.getElementById('btn-quicksave')?.addEventListener('click', _quickSave);
+          _renderSavedGames();
 
           /* keep Engine Info sidebar in sync */
           const eiEng=document.getElementById('ei-eng');
@@ -745,6 +781,78 @@ const App = (() => {
   function init(){
     window.addEventListener('hashchange',handleRoute);
     handleRoute();
+  }
+
+  /* ════════════════════════════════════════════
+     SESSION SAVE SYSTEM
+     Stores game snapshots in sessionStorage (gone on refresh).
+  ════════════════════════════════════════════ */
+  const SAVE_KEY = 'chessau_saves';
+
+  function _quickSave(){
+    const moves = Board.getMoves();
+    const opening = document.getElementById('opening-content')
+      ?.querySelector('.ob-name')?.textContent?.trim() || '';
+    const now = new Date();
+    const ts = now.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+    const MODE_SHORT = {hvh:'HvH', stockfish:'vs SF', engine:'vs Eng'};
+    const save = {
+      id: Date.now().toString(),
+      ts,
+      mode: currentMode,
+      modeName: MODE_LABELS[currentMode]||currentMode,
+      modeShort: MODE_SHORT[currentMode]||currentMode,
+      moves,
+      opening,
+    };
+    try{
+      const saves = _getSaves();
+      saves.unshift(save);
+      if(saves.length>5) saves.pop();
+      sessionStorage.setItem(SAVE_KEY, JSON.stringify(saves));
+      _renderSavedGames();
+      _showToast('📌 Game saved!');
+    }catch(e){ _showToast('Save failed'); }
+  }
+
+  function _getSaves(){
+    try{ return JSON.parse(sessionStorage.getItem(SAVE_KEY)||'[]'); }catch{ return []; }
+  }
+
+  function _renderSavedGames(){
+    const el = document.getElementById('saved-games-list');
+    if(!el) return;
+    const saves = _getSaves();
+    if(!saves.length){
+      el.innerHTML = '<div class="save-empty">No saves yet</div>';
+      return;
+    }
+    el.innerHTML = saves.map(s=>`
+      <div class="save-item" data-id="${s.id}">
+        <div class="save-mode">${s.modeShort} · ${s.ts}</div>
+        ${s.opening?`<div class="save-opening">${s.opening}</div>`:''}
+        <div class="save-meta">${s.moves.length} moves</div>
+      </div>`).join('');
+    el.querySelectorAll('.save-item').forEach(item=>{
+      item.addEventListener('click',()=>_restoreGame(item.dataset.id));
+    });
+  }
+
+  async function _restoreGame(id){
+    const save = _getSaves().find(s=>s.id===id);
+    if(!save) return;
+    try{
+      const res = await fetch('/load_position',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({moves:save.moves}),
+      });
+      if(!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      // Update board state directly
+      Board.applyRestoredState(data, save.moves);
+      _showToast('🔁 Game restored');
+    }catch(e){ _showToast('Restore failed: '+e.message); }
   }
 
   return { getMode:()=>currentMode, navigate, init };
