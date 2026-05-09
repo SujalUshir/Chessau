@@ -166,6 +166,7 @@ const Board = (() => {
 
   /* drag */
   let dragActive=false, dragFrom=null, dragEl=null, _dox=0, _doy=0;
+  let _justSelected=false; // prevent mobile tap from deselecting immediately
 
   /* ════════════════════════════════════════════
      EVAL BAR SMOOTHING — module scope so state
@@ -292,7 +293,6 @@ const Board = (() => {
           sq.appendChild(img);
         }
 
-        sq.addEventListener('click',()=>{ if(!dragActive) onClickSq(r,c,not); });
         sq.addEventListener('pointerdown',e=>onDragStart(e,r,c,not));
         $board.appendChild(sq);
       }
@@ -306,13 +306,22 @@ const Board = (() => {
   function _drawBar(fillEl,valEl,cp){
     if(!fillEl) return;
     if(cp===null||cp===undefined){
-      fillEl.style.height='50%';
+      fillEl.style.height='50%'; fillEl.style.width='100%';
       if(valEl) valEl.textContent='—';
       return;
     }
     const clamped=Math.max(-2000,Math.min(2000,cp));
     const pct=50+(clamped/2000)*50;
-    fillEl.style.height=pct.toFixed(1)+'%';
+
+    const isH = window.innerWidth <= 700;
+    if(isH){
+      fillEl.style.width=pct.toFixed(1)+'%';
+      fillEl.style.height='100%';
+    } else {
+      fillEl.style.height=pct.toFixed(1)+'%';
+      fillEl.style.width='100%';
+    }
+
     if(valEl){
       const abs=(Math.abs(cp)/100).toFixed(1);
       valEl.textContent=cp===0?'0.0':(cp>0?'+':'-')+abs;
@@ -676,35 +685,36 @@ const Board = (() => {
     const mode=window.App?.getMode();
     if(mode!=='hvh'&&turn!==playerColor) return;
     const piece=board[r][c];
-    if(!piece||piece==='.') return;
-    const isW=piece===piece.toUpperCase();
-    if(turn==='white'&&!isW) return;
-    if(turn==='black'&& isW) return;
+    const isP = piece && piece !== '.';
+    if(!isP && !selected) return;
 
     e.preventDefault();
     const sqEl=$board.querySelector(`[data-square="${not}"]`);
     const rect=sqEl.getBoundingClientRect();
     _dox=e.clientX-rect.left; _doy=e.clientY-rect.top;
 
-    dragEl=document.createElement('img');
-    dragEl.src=pUrl(piece);
-    const sz=rect.width;
-    Object.assign(dragEl.style,{
-      position:'fixed',zIndex:'9999',pointerEvents:'none',
-      width:sz+'px',height:sz+'px',objectFit:'contain',
-      left:(e.clientX-_dox)+'px',top:(e.clientY-_doy)+'px',
-      filter:'drop-shadow(2px 5px 10px rgba(0,0,0,.8))',
-      transition:'none',
-    });
-    document.body.appendChild(dragEl);
+    if(isP){
+      dragEl=document.createElement('img');
+      dragEl.src=pUrl(piece);
+      const sz=rect.width;
+      Object.assign(dragEl.style,{
+        position:'fixed',zIndex:'9999',pointerEvents:'none',
+        width:sz+'px',height:sz+'px',objectFit:'contain',
+        left:(e.clientX-_dox)+'px',top:(e.clientY-_doy)+'px',
+        filter:'drop-shadow(2px 5px 10px rgba(0,0,0,.8))',
+        transition:'none',
+      });
+      document.body.appendChild(dragEl);
+      
+      if(!selected || selected.row!==r || selected.col!==c){
+        selected={row:r,col:c}; legal=[]; _justSelected=true; render();
+        GET(`/moves?square=${not}`).then(d=>{
+          legal=(d.moves||[]).map(m=>typeof m==='string'?m:m.to);
+          render();
+        }).catch(()=>{});
+      }
+    }
     dragFrom={r,c,not}; dragActive=false;
-    selected={row:r,col:c}; legal=[]; render();
-
-    GET(`/moves?square=${not}`).then(d=>{
-      legal=(d.moves||[]).map(m=>typeof m==='string'?m:m.to);
-      render();
-    }).catch(()=>{});
-
     document.addEventListener('pointermove',onDragMove);
     document.addEventListener('pointerup',  onDragEnd);
     document.addEventListener('pointercancel', onDragEnd);
@@ -719,16 +729,34 @@ const Board = (() => {
     document.removeEventListener('pointermove',onDragMove);
     document.removeEventListener('pointerup',  onDragEnd);
     document.removeEventListener('pointercancel', onDragEnd);
-    if(!dragEl){ dragActive=false; dragFrom=null; return; }
-    dragEl.remove(); dragEl=null;
-    if(e.type==='pointercancel' || !dragActive){ dragActive=false; dragFrom=null; render(); return; }
+    
+    const wasTap = (e.type !== 'pointercancel' && !dragActive);
+    if(dragEl){ dragEl.remove(); dragEl=null; }
+    
+    if(wasTap){
+      dragActive=false;
+      const {r, c, not: fNot} = dragFrom || {};
+      dragFrom=null;
+      if(fNot){
+        const target=document.elementFromPoint(e.clientX,e.clientY);
+        const sqEl=target?.closest('[data-square]');
+        const tNot = sqEl?.dataset.square;
+        if(tNot){
+          const{row:tr,col:tc}=n2i(tNot);
+          onClickSq(tr,tc,tNot);
+        }
+      }
+      render(); return;
+    }
+    
     dragActive=false;
     const target=document.elementFromPoint(e.clientX,e.clientY);
     const sqEl=target?.closest('[data-square]');
-    if(!sqEl||!dragFrom){ dragFrom=null; return; }
+    if(!sqEl||!dragFrom){ dragFrom=null; render(); return; }
     const toNot=sqEl.dataset.square;
     const from=dragFrom.not; dragFrom=null;
-    if(toNot===from) return;
+    if(toNot===from){ render(); return; }
+    
     if(legal.includes(toNot)){
       const piece=board[selected.row][selected.col];
       const{row:tr}=n2i(toNot);
@@ -764,7 +792,11 @@ const Board = (() => {
     }
 
     const fromNot=i2n(selected.row,selected.col);
-    if(not===fromNot){ selected=null; legal=[]; render(); return; }
+    if(not===fromNot){
+      if(_justSelected){ _justSelected=false; return; }
+      selected=null; legal=[]; render(); return;
+    }
+    _justSelected=false;
 
     if(legal.includes(not)){
       const piece=board[selected.row][selected.col];
