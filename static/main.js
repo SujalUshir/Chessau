@@ -963,12 +963,13 @@ const App = (() => {
     };
 
     try {
+      // Fetch total visitor count for the root path (/) from GoatCounter's public counter API
+      // Root cause for 403: Dashboard > Settings > Site settings > Allow using the visitor counter
       const res = await fetch('https://chessau.goatcounter.com/counter/%2F.json');
       if(res.ok){
         const data = await res.json();
         const raw = data.count;
         if(raw !== undefined && raw !== null) {
-          // Parse and format (e.g. 1.2k if large, or add commas)
           let num = parseInt(raw.toString().replace(/,/g, ''));
           let display;
           if(isNaN(num)) {
@@ -980,7 +981,6 @@ const App = (() => {
           } else {
             display = num.toString();
           }
-          
           if(footerEl) footerEl.textContent = `${display} Visitors`;
           if(infoEl) infoEl.textContent = display;
           return;
