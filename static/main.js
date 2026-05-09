@@ -145,9 +145,60 @@ const App = (() => {
 
     page.innerHTML=`
       <div class="home-hero">
-        <h1>Chess<em>au</em></h1>
+        <h1 style="font-family: var(--font-mojangles);">Chess<em>au</em></h1>
+        <p class="tagline">Modern lightweight chess analysis platform.</p>
+        <div style="margin-top: 24px;">
+          <button class="btn btn-gold" onclick="location.hash='play'">Play Now</button>
+        </div>
+      </div>
+      <div class="home-content">
+        <section class="home-about">
+          <p>Chessau is a modern lightweight chess analysis platform featuring opening recognition, move review, accuracy tracking, and interactive gameplay.</p>
+        </section>
+        
+        <section class="home-stats">
+          <div class="stat-card"><strong>Engine</strong><br/>Stockfish 16</div>
+          <div class="stat-card"><strong>Analysis</strong><br/>Real-time</div>
+          <div class="stat-card"><strong>Theory</strong><br/>ECO Support</div>
+          <div class="stat-card"><strong>Platform</strong><br/>Browser Native</div>
+        </section>
+
+        <section class="home-features">
+          <div class="feature-card">
+            <h4>Opening Recognition</h4>
+            <p>Automatic ECO detection and opening book integration.</p>
+          </div>
+          <div class="feature-card">
+            <h4>Move Review</h4>
+            <p>Centipawn-loss analysis and brilliant/blunder categorization.</p>
+          </div>
+          <div class="feature-card">
+            <h4>Accuracy Tracking</h4>
+            <p>Post-game accuracy scoring powered by Stockfish evaluation.</p>
+          </div>
+          <div class="feature-card">
+            <h4>Session Saves</h4>
+            <p>Never lose your game with automatic lightweight session saves.</p>
+          </div>
+        </section>
+      </div>`;
+      
+    return page;
+  }
+
+  /* ════════════════════════════════════════════
+     PLAY PAGE (Game Mode Hub)
+  ════════════════════════════════════════════ */
+  function renderPlay(){
+    const page=document.createElement('div');
+    page.className='page home-page';
+    let sq='';
+    for(let i=0;i<64;i++){ const r=Math.floor(i/8),c=i%8; sq+=`<span class="${(r+c)%2===0?'lt':'dk'}"></span>`; }
+
+    page.innerHTML=`
+      <div class="home-hero">
+        <h2 style="font-family: var(--font-mojangles); font-size: 2.4rem; color: var(--accent-lt); margin-bottom: 12px;">Select Game Mode</h2>
         <div class="mini-board">${sq}</div>
-        <p class="tagline">Choose your opponent &amp; colour</p>
       </div>
       <div class="color-picker">
         <span class="color-picker-label">Play as</span>
@@ -161,19 +212,21 @@ const App = (() => {
           <span class="icon">♟♙</span>
           <h3>Human vs Human</h3>
           <p>Two players share the board locally.</p>
+          <div class="mode-tags"><span class="tag">Move Review</span></div>
           <span class="arrow">↗</span>
         </div>
         <div class="mode-card" data-mode="stockfish">
           <span class="icon">♟♚</span>
           <h3>Human vs Stockfish</h3>
-          <p>Challenge the world-class Stockfish engine.</p>
+          <p>Play against Stockfish with opening theory + review</p>
+          <div class="mode-tags"><span class="tag">Opening Book</span> <span class="tag">Analysis</span></div>
           <span class="arrow">↗</span>
         </div>
-        <div class="mode-card" data-mode="engine">
-          <span class="icon">♟⚙</span>
-          <h3>Human vs My Engine</h3>
-          <p>Alpha-beta + iterative deepening. Choose difficulty.</p>
-          <span class="arrow">↗</span>
+        <div class="mode-card disabled" data-mode="engine">
+          <span class="icon">🚧</span>
+          <h3>Master Bot</h3>
+          <p>Custom depth-4 engine.</p>
+          <div class="mode-tags"><span class="tag alert">Under Development</span></div>
         </div>
       </div>`;
 
@@ -186,7 +239,7 @@ const App = (() => {
     });
     page.querySelector('#home-settings-btn').addEventListener('click',showSettings);
 
-    page.querySelectorAll('.mode-card').forEach(card=>{
+    page.querySelectorAll('.mode-card:not(.disabled)').forEach(card=>{
       card.addEventListener('click',()=>{
         const mode=card.dataset.mode;
         currentMode=mode;
@@ -727,6 +780,7 @@ const App = (() => {
           document.getElementById('btn-home')    .addEventListener('click', ()=>navigate('home'));
           document.getElementById('btn-resign')  .addEventListener('click', ()=>Board.resign(currentMode));
           document.getElementById('btn-quicksave')?.addEventListener('click', _quickSave);
+          document.getElementById('btn-clearsaves')?.addEventListener('click', _clearSaves);
           _renderSavedGames();
 
           /* keep Engine Info sidebar in sync */
@@ -830,6 +884,11 @@ const App = (() => {
 
   function _getSaves(){
     try{ return JSON.parse(sessionStorage.getItem(SAVE_KEY)||'[]'); }catch{ return []; }
+  }
+
+  function _clearSaves() {
+    sessionStorage.removeItem('chessau_saves');
+    _renderSavedGames();
   }
 
   function _renderSavedGames(){

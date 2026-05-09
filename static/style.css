@@ -15,7 +15,7 @@
   --highlight:    #cdd26a;   /* selected / legal move */
   --danger:       #e05252;
   --font-display: 'Space Grotesk', sans-serif;
-  --font-mojangles: 'Mojangles', 'Space Grotesk', sans-serif;
+  --font-mojangles: 'Minecraft', 'Space Grotesk', sans-serif;
   --font-body:    'Inter', sans-serif;
   --font-mono:    'IBM Plex Mono', 'Courier New', monospace;
   --radius:       2px;
@@ -1403,3 +1403,6 @@ nav {
   pointer-events: none;
   filter: grayscale(100%);
 }
+
+.btn-clear-sm { color: var(--danger) !important; border-color: rgba(224, 82, 82, 0.4) !important; }
+.btn-clear-sm:hover { background: rgba(224, 82, 82, 0.1) !important; border-color: var(--danger) !important; }
