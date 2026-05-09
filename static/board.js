@@ -1044,7 +1044,8 @@ const Board = (() => {
   }
   function _showOver(d){
     let msg;
-    if(d.status==='checkmate')            msg=`♛ Checkmate! ${d.winner} wins!`;
+    if(d.status==='resign')               msg=`🏳 ${d.resigned.charAt(0).toUpperCase()+d.resigned.slice(1)} resigned · ${d.winner} wins`;
+    else if(d.status==='checkmate')       msg=`♛ Checkmate! ${d.winner} wins!`;
     else if(d.status==='stalemate')       msg='Stalemate — draw.';
     else if(d.status==='draw_material')   msg='Draw — insufficient material.';
     else if(d.status==='draw_repetition') msg='Draw — threefold repetition.';
@@ -1061,7 +1062,10 @@ const Board = (() => {
   function _showEndModal(d){
     document.getElementById('end-game-modal')?.remove();
     let title,subtitle,icon;
-    if(d.status==='checkmate'){
+    if(d.status==='resign'){
+      icon='🏳'; title='Resigned';
+      subtitle=`${d.resigned.charAt(0).toUpperCase()+d.resigned.slice(1)} resigned · ${d.winner.charAt(0).toUpperCase()+d.winner.slice(1)} wins`;
+    }else if(d.status==='checkmate'){
       icon='♛'; title='Checkmate!';
       subtitle=`${d.winner.charAt(0).toUpperCase()+d.winner.slice(1)} wins`;
     }else if(d.status==='stalemate'){
@@ -1288,6 +1292,22 @@ const Board = (() => {
     else _bmHidePanel();
   }
 
+  /**
+   * resign(mode)
+   * Immediately ends the game with a resignation.
+   * In engine modes the human player always resigns; in HvH the current-turn player resigns.
+   */
+  function resign(mode){
+    if(gameOver) return;
+    const resigningColor = (mode && mode !== 'hvh') ? playerColor : turn;
+    const winner = resigningColor === 'white' ? 'black' : 'white';
+    gameOver = true;
+    _gameResult = winner === 'white' ? '1-0' : '0-1';
+    _clearHint();
+    render();
+    _showOver({ status:'resign', resigned:resigningColor, winner });
+  }
+
   return {
     init,
     resetGame,
@@ -1298,5 +1318,6 @@ const Board = (() => {
     setUndoEnabled,
     setEngineDepth,
     setBestMoveMode,
+    resign,
   };
 })();

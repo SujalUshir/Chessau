@@ -30,7 +30,7 @@ const App = (() => {
     { id:'beginner',     name:'Beginner',     depth:1, icon:'🐣', desc:'Plays random-ish moves. Great for beginners.' },
     { id:'intermediate', name:'Intermediate', depth:2, icon:'🎓', desc:'Thinks 2 moves ahead. A fair challenge.' },
     { id:'advanced',     name:'Advanced',     depth:3, icon:'⚔️',  desc:'Alpha-beta at depth 3 — the default engine.' },
-    { id:'master',       name:'Master',       depth:4, icon:'👑', desc:'Depth 4 with full search. Plays strong chess.' },
+    { id:'master',       name:'Master',       depth:4, icon:'👑', desc:'Depth 4 with full search. Plays strong chess.', disabled:true },
   ];
 
   const MODE_LABELS = { hvh:'Human vs Human', stockfish:'Human vs Stockfish', engine:'Human vs My Engine' };
@@ -217,12 +217,13 @@ const App = (() => {
         <h3>${fromGame ? 'Change Difficulty' : 'Choose Your Opponent'}</h3>
         <div class="bot-grid">
           ${BOTS.map(b=>`
-            <div class="bot-card${selectedBot?.id===b.id?' bot-selected':''}" data-id="${b.id}">
+            <div class="bot-card${selectedBot?.id===b.id?' bot-selected':''}${b.disabled?' bot-disabled':''}" data-id="${b.id}">
               <div class="bot-avatar">${b.icon}</div>
               <div class="bot-info">
                 <div class="bot-name">${b.name}</div>
                 <div class="bot-depth">Depth ${b.depth}</div>
                 <div class="bot-desc">${b.desc}</div>
+                ${b.disabled ? '<div class="bot-soon-badge">🚧 Coming Soon</div>' : ''}
               </div>
             </div>`).join('')}
         </div>
@@ -236,6 +237,12 @@ const App = (() => {
 
     let chosen=selectedBot;
     ov.querySelectorAll('.bot-card').forEach(card=>{
+      const botDef=BOTS.find(b=>b.id===card.dataset.id);
+      // Disabled bots: intercept click, show coming-soon, do NOT select.
+      if(botDef?.disabled){
+        card.addEventListener('click',()=>_showComingSoon(botDef.name));
+        return;
+      }
       card.addEventListener('click',()=>{
         ov.querySelectorAll('.bot-card').forEach(c=>c.classList.remove('bot-selected'));
         card.classList.add('bot-selected');
@@ -345,6 +352,7 @@ const App = (() => {
           <button class="btn btn-ghost" id="btn-flip">⇅ Flip</button>
           <button class="btn btn-ghost" id="btn-fen" title="Copy FEN to clipboard">📋 FEN</button>
           <button class="btn btn-ghost" id="btn-settings">⚙ Settings</button>
+          <button class="btn btn-danger" id="btn-resign">🏳 Resign</button>
           <button class="btn btn-gold"  id="btn-reset">↺ New Game</button>
         </div>
       </div>
@@ -546,6 +554,29 @@ const App = (() => {
     Board.setBestMoveMode(cfg.bmMode);
   }
 
+  /** Show "Under Development" modal for a named bot difficulty. */
+  function _showComingSoon(name){
+    document.getElementById('coming-soon-overlay')?.remove();
+    const ov=document.createElement('div');
+    ov.id='coming-soon-overlay';
+    ov.className='settings-overlay';
+    ov.innerHTML=`
+      <div class="settings-panel" style="max-width:300px;text-align:center;padding:32px 28px">
+        <div style="font-size:2.4rem;margin-bottom:12px">🚧</div>
+        <h3 style="margin-bottom:8px">${name} Bot</h3>
+        <p style="color:var(--text-muted);font-size:.8rem;line-height:1.65;margin-bottom:18px">
+          This difficulty is currently under development and will be available in a future update.
+        </p>
+        <p style="color:var(--accent-dk);font-size:.68rem;letter-spacing:.12em;text-transform:uppercase;margin-bottom:22px">
+          Coming Soon
+        </p>
+        <button class="btn btn-gold" id="cs-close" style="width:100%;justify-content:center">Got it</button>
+      </div>`;
+    ov.querySelector('#cs-close').addEventListener('click',()=>ov.remove());
+    ov.addEventListener('click',e=>{ if(e.target===ov) ov.remove(); });
+    document.body.appendChild(ov);
+  }
+
   /** Small toast notification — reuse Board's if available, else own impl */
   function _showToast(msg){
     document.querySelectorAll('.fen-toast').forEach(t=>t.remove());
@@ -683,6 +714,7 @@ const App = (() => {
           document.getElementById('btn-flip')    .addEventListener('click', ()=>Board.flipBoard());
           document.getElementById('btn-settings').addEventListener('click', showSettings);
           document.getElementById('btn-home')    .addEventListener('click', ()=>navigate('home'));
+          document.getElementById('btn-resign')  .addEventListener('click', ()=>Board.resign(currentMode));
 
           /* keep Engine Info sidebar in sync */
           const eiEng=document.getElementById('ei-eng');

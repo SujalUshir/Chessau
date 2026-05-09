@@ -1184,3 +1184,44 @@ nav {
 .pg-sc.pg-blunder     { color: #ee3333; border-color: #ee333344; }
 .pg-sc.pg-mistake     { color: #ee8833; border-color: #ee883344; }
 .pg-sc.pg-inaccuracy  { color: #ddbb22; border-color: #ddbb2244; }
+
+/* ═══════════════════════════════════
+   RESIGN BUTTON
+═══════════════════════════════════ */
+.btn-danger {
+  background: transparent;
+  border-color: var(--danger);
+  color: var(--danger);
+  font-weight: 700;
+}
+.btn-danger:hover {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+}
+.btn-danger:active { transform: scale(.97); }
+
+/* ═══════════════════════════════════
+   DISABLED BOT CARD  (coming soon)
+═══════════════════════════════════ */
+.bot-disabled {
+  opacity: 0.46;
+  cursor: default;
+}
+.bot-disabled:hover {
+  border-color: var(--border) !important;
+  background: var(--bg) !important;
+}
+.bot-soon-badge {
+  display: inline-block;
+  margin-top: 4px;
+  background: rgba(176,137,99,.12);
+  border: 1px solid rgba(176,137,99,.35);
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: .58rem;
+  font-weight: 700;
+  color: var(--accent-dk);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
