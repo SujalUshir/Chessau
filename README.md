@@ -318,28 +318,41 @@ Chessau/
 
 # 📸 Screenshots
 
-## 🏠 Home Page
+🏠 Home Page
 
-Add screenshot here
+Modern voxel-inspired landing page with interactive grid background and responsive typography.
+![Home Page](screenshots/home.png)
 
----
+🎮 Play Hub
 
-## 🎮 Gameplay
+Centralized game-mode launcher for Human, Stockfish, and MyEngine gameplay modes.
+![Play Hub](screenshots/play.png)
 
-Add screenshot here
+♟️ Gameplay Interface
 
----
+Real-time gameplay with live evaluation bar, opening recognition, and analysis panels.
+![Chessau Gameplay](screenshots/game.png)
 
-## 📊 Move Review & Accuracy
+📊 Move Review & Accuracy
 
-Add screenshot here
+Stockfish-powered move classification and post-game accuracy analysis.
+![Move Review](screenshots/review.png)
 
----
+📖 Opening Recognition
 
-## 📖 Opening Recognition
+Automatic ECO opening recognition with opening-book integration and in-book tracking.
+![Opening Recognition](screenshots/opening.png)
 
-Add screenshot here
+💾 Saved Games
 
+Session-based save management with restore and deletion support.
+![Saved Games](screenshots/saves.png)
+
+ℹ️ Info / Architecture
+
+Project overview and architecture information page.
+![Info1 Page](screenshots/info1.png)
+![Info2 Page](screenshots/info2.png)
 ---
 
 # 🚀 Run Locally
