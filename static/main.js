@@ -144,7 +144,6 @@ const App = (() => {
     for(let i=0;i<64;i++){ const r=Math.floor(i/8),c=i%8; sq+=`<span class="${(r+c)%2===0?'lt':'dk'}"></span>`; }
 
     page.innerHTML=`
-      <div class="home-grid-bg" id="home-grid-bg"></div>
       <div class="home-hero">
         <h1>Chess<em>au</em></h1>
         <div class="mini-board">${sq}</div>
@@ -200,48 +199,7 @@ const App = (() => {
         }
       });
     });
-    // Interactive grid glow
-    {
-      const grid = page.querySelector('#home-grid-bg');
-      if(grid){
-        const cellSize = 30; // Matches style.css .grid-cell width/height
-        
-        const renderGrid = () => {
-          const w = window.innerWidth;
-          const h = window.innerHeight;
-          // Add a few extra rows/cols to ensure it fills the screen perfectly
-          const cols = Math.ceil(w / cellSize) + 1;
-          const rows = Math.ceil(h / cellSize) + 1;
-          const totalCells = cols * rows;
-          
-          const frag = document.createDocumentFragment();
-          for(let i = 0; i < totalCells; i++) {
-            const cell = document.createElement('div');
-            cell.className = 'grid-cell';
-            frag.appendChild(cell);
-          }
-          grid.innerHTML = '';
-          grid.appendChild(frag);
-        };
-        
-        renderGrid();
-        
-        let resizeTimer;
-        const onResize = () => {
-          clearTimeout(resizeTimer);
-          resizeTimer = setTimeout(renderGrid, 150);
-        };
-        window.addEventListener('resize', onResize);
-        
-        // Clean up when page is removed from DOM
-        new MutationObserver((_, obs) => {
-          if(!document.body.contains(page)){
-            window.removeEventListener('resize', onResize);
-            obs.disconnect();
-          }
-        }).observe(document.body, {childList:true, subtree:true});
-      }
-    }
+
     return page;
   }
 
@@ -724,6 +682,7 @@ const App = (() => {
 
     switch(hash){
       case 'game':{
+        document.getElementById('global-grid-bg')?.classList.add('dim-grid');
         if(!currentMode){ navigate('home'); return; }
         const page=renderGame(_resolvedColor);
         app.appendChild(page);
@@ -791,12 +750,45 @@ const App = (() => {
         });
         break;
       }
-      case 'info': app.appendChild(renderInfo()); break;
-      case 'home': default: app.appendChild(renderHome()); break;
+      case 'info': 
+        document.getElementById('global-grid-bg')?.classList.add('dim-grid');
+        app.appendChild(renderInfo()); break;
+      case 'home': default: 
+        document.getElementById('global-grid-bg')?.classList.remove('dim-grid');
+        app.appendChild(renderHome()); break;
     }
   }
 
   function init(){
+    // Setup global background grid
+    const grid = document.createElement('div');
+    grid.className = 'global-grid-bg';
+    grid.id = 'global-grid-bg';
+    document.body.insertBefore(grid, document.body.firstChild);
+    
+    const cellSize = 30;
+    const renderGrid = () => {
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      const cols = Math.ceil(w / cellSize) + 1;
+      const rows = Math.ceil(h / cellSize) + 1;
+      const totalCells = cols * rows;
+      const frag = document.createDocumentFragment();
+      for(let i = 0; i < totalCells; i++) {
+        const cell = document.createElement('div');
+        cell.className = 'grid-cell';
+        frag.appendChild(cell);
+      }
+      grid.innerHTML = '';
+      grid.appendChild(frag);
+    };
+    renderGrid();
+    let resizeTimer;
+    window.addEventListener('resize', () => {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(renderGrid, 150);
+    });
+
     window.addEventListener('hashchange',handleRoute);
     handleRoute();
   }
