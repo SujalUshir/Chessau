@@ -127,7 +127,7 @@ const App = (() => {
       <div class="nav-logo" id="nav-logo">Chess<span>au</span></div>
       <ul class="nav-links">
         <li><a href="#home" class="${hash==='home'?'active':''}">Home</a></li>
-        <li><a href="#game" class="${hash==='game'?'active':''}">Play</a></li>
+        <li><a href="#play" class="${hash==='play'?'active':''}">Play</a></li>
         <li><a href="#info" class="${hash==='info'?'active':''}">Info</a></li>
       </ul>`;
     nav.querySelector('#nav-logo').addEventListener('click',()=>navigate('home'));
@@ -753,6 +753,9 @@ const App = (() => {
       case 'info': 
         document.getElementById('global-grid-bg')?.classList.add('dim-grid');
         app.appendChild(renderInfo()); break;
+      case 'play':
+        document.getElementById('global-grid-bg')?.classList.add('dim-grid');
+        app.appendChild(renderPlay()); break;
       case 'home': default: 
         document.getElementById('global-grid-bg')?.classList.remove('dim-grid');
         app.appendChild(renderHome()); break;
