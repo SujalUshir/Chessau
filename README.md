@@ -1,280 +1,471 @@
-# ♟️ Chessau Web App with Stockfish Analysis
+# ♟️ Chessau — Modern Chess Analysis Platform
 
 ## 🔗 Live Demo
 
-👉 https://your-app.onrender.com *(replace after deploy)*
-
-A full-stack chess web application featuring a custom-built engine, Stockfish integration, and advanced move analysis — inspired by platforms like Chess.com and Lichess.
+[https://chessau.onrender.com](https://chessau.onrender.com)
 
 ---
 
-## ⭐ Highlights
+# Overview
 
-* Built a custom chess engine using **minimax + alpha-beta pruning**
-* Integrated **Stockfish** for evaluation and move validation
-* Designed a **move classification system** (Brilliant → Blunder)
-* Implemented **undo/redo using snapshot-based state management**
-* Deployed using **Flask + Gunicorn on Render**
+Chessau is a full-stack browser-based chess platform focused on real-time analysis, opening intelligence, move review, and a polished voxel-inspired UI experience.
 
----
+The project combines:
 
-## 📸 Screenshots
+* Real-time Stockfish analysis
+* A custom Python chess engine
+* Opening-book integration
+* ECO opening recognition
+* Move classification & accuracy analysis
+* Save/load functionality
+* SPA-style frontend architecture
+* Responsive modern UI/UX
 
-### 🏠 Home Screen
-
-![Home](screenshots/home.png)
-
-### ♟️ Gameplay (Human vs Human)
-
-![Game](screenshots/game.png)
-
-### 🤖 Gameplay with Analysis (Stockfish)
-
-![Analysis](screenshots/analysis.png)
-
-### 🎯 Game Setup & Mode Selection
-
-![Summary](screenshots/summary.png)
-
-### ⚙️ Settings Panel
-
-![Settings](screenshots/settings.png)
-
-### 📖 Features Overview
-
-![Info Features](screenshots/info-features.png)
-
-### 🧠 Tech & Architecture Overview
-
-![Info Tech](screenshots/info-tech.png)
+Chessau was designed as a lightweight but feature-rich chess experience inspired by platforms like Chess.com and Lichess while maintaining a fully custom architecture.
 
 ---
 
-## 🚀 Features
+# ✨ Core Features
 
-### 🎮 Game Modes
+## 🎮 Game Modes
 
 * Human vs Human
 * Human vs Stockfish
-* Human vs Custom Engine
+* Human vs MyEngine
+* Master Bot (experimental / disabled)
 
 ---
 
-### 📊 Analysis System
+## 📊 Real-Time Analysis
 
-* Move classification:
+* Live Stockfish evaluation bar
+* Best-move suggestions
+* Move review system
+* Accuracy calculation system
+* MultiPV-based analysis
+* Move classifications:
 
-  * Brilliant 💎
-  * Best
-  * Excellent
-  * Good
-  * Inaccuracy
-  * Mistake
-  * Blunder
-
-* Best move suggestions:
-
-  * Current position
-  * Previous move
-
----
-
-### 📈 Post-Game Insights
-
-* Accuracy system:
-
-  * Accuracy % for White & Black
-  * Blunders, Mistakes, Inaccuracies
-
-* Evaluation graph (Stockfish-based)
-
-* Full move-by-move analysis
+| Classification | Meaning                              |
+| -------------- | ------------------------------------ |
+| Brilliant 💎   | High-value tactical/sacrificial move |
+| Best           | Engine top move                      |
+| Excellent      | Near-perfect move                    |
+| Good           | Solid move                           |
+| Inaccuracy     | Small positional loss                |
+| Mistake        | Significant positional loss          |
+| Blunder        | Severe losing move                   |
 
 ---
 
-### 🔁 Game Features
+## 📖 Opening System
 
-* Undo / Redo with full state restoration
-* Save game functionality
-* Interactive board UI
-* Drag-and-drop + click-to-move
-* Sound effects
+* Polyglot opening-book integration
+* ECO opening recognition
+* Opening-name display
+* In-book / Out-of-book detection
+* Book-move indicators
 
----
+Examples:
 
-## 🧠 Tech Stack
-
-* **Backend:** Python (Flask)
-* **Frontend:** JavaScript (SPA)
-* **Engine:** Custom chess engine
-* **Analysis:** Stockfish
+* Sicilian Defense
+* Queen's Gambit
+* Giuoco Piano
+* French Defense
 
 ---
 
-## 🏗️ Architecture
+## 🔁 Game Features
 
-* Frontend (SPA) communicates with backend via REST APIs
-
-* Backend handles:
-
-  * Move validation
-  * Game state management
-  * Engine evaluation
-  * Stockfish integration
-
-* Move history stores:
-
-  * eval_before / eval_after
-  * best move
-  * classification
-
-* Snapshot-based system used for undo/redo
+* Drag-and-drop board
+* Click-to-move support
+* Undo / Redo
+* Save game system
+* Session-based restore system
+* Move sounds
+* Responsive board UI
+* Resign system
 
 ---
 
-## ⚡ Performance Notes
+## 💾 Save System
 
-* Iterative deepening with alpha-beta pruning
-* Efficient state snapshots for fast undo/redo
-* Move ordering using heuristics
-* Minimal recomputation of board states
+Chessau includes a lightweight session-based save architecture.
+
+Features:
+
+* Save current games instantly
+* Restore saved games
+* Delete individual saves
+* Clear all saves
+* Saved-games navigation page
+
+Technical details:
+
+* Uses browser `sessionStorage`
+* No database required
+* Saves persist until browser refresh
 
 ---
 
-## 🛠️ Run Locally
+# 🧠 Tech Stack
+
+| Layer         | Technology                 |
+| ------------- | -------------------------- |
+| Backend       | Python + Flask             |
+| Frontend      | Vanilla JavaScript SPA     |
+| Engine        | Custom Python Chess Engine |
+| Analysis      | Stockfish                  |
+| Styling       | CSS3 + Grid/Flexbox        |
+| Opening Books | python-chess Polyglot      |
+| Deployment    | Render + Gunicorn          |
+
+---
+
+# 🏗️ Architecture
+
+## Frontend
+
+The frontend is implemented as a lightweight Single Page Application (SPA) without React/Vue.
+
+Core responsibilities:
+
+* Route handling
+* Board rendering
+* UI state management
+* API communication
+* Review rendering
+* Save management
+* Opening-card rendering
+
+### Key Files
+
+| File                   | Purpose                                  |
+| ---------------------- | ---------------------------------------- |
+| `static/main.js`       | Global app controller, routing, UI state |
+| `static/board.js`      | Chessboard rendering & interaction logic |
+| `static/style.css`     | Full design system & UI styling          |
+| `templates/index.html` | App bootstrap & font imports             |
+
+---
+
+## Backend
+
+The backend is fully stateless and FEN-driven.
+
+Core responsibilities:
+
+* Move validation
+* Stockfish integration
+* Review generation
+* Accuracy analysis
+* Opening-book lookup
+* ECO recognition
+* Engine move generation
+
+### Key Files
+
+| File        | Purpose                           |
+| ----------- | --------------------------------- |
+| `app.py`    | Flask server + API routes         |
+| `engine.py` | Custom chess engine               |
+| `books/`    | Polyglot opening books + ECO data |
+
+---
+
+# ⚙️ Engineering Highlights
+
+## 🔹 Stockfish Integration
+
+Chessau uses a persistent Stockfish process instead of spawning new processes per request.
+
+Benefits:
+
+* Lower latency
+* Reduced memory overhead
+* Better stability on Render free-tier
+* Consistent evaluations
+
+Additional optimizations:
+
+* Depth separation:
+
+  * Live eval bar → lower depth
+  * Move review → higher depth
+* MultiPV move comparison
+* Evaluation normalization to White POV
+* Crash recovery & respawn handling
+
+---
+
+## 🔹 Custom Chess Engine
+
+The project includes a custom-built Python chess engine.
+
+Implemented concepts:
+
+* Minimax
+* Alpha-Beta Pruning
+* Iterative Deepening
+* Piece-Square Tables
+* Move Ordering
+* Transposition Tables
+* Zobrist Hashing
+
+Limitations:
+
+* Python-based node search becomes slow at high depths
+* Experimental Master Bot mode remains disabled for stability
+
+---
+
+## 🔹 Move Review Pipeline
+
+The move-review system compares:
+
+* Evaluation before move
+* Evaluation after move
+* Best engine continuation
+* MultiPV alternatives
+
+The system then computes:
+
+* Centipawn loss
+* Move classification
+* Accuracy contribution
+
+This architecture evolved significantly to solve:
+
+* Eval-sign flipping bugs
+* Perspective inconsistencies
+* Unrealistic accuracy swings
+* Race-condition desyncs
+
+---
+
+## 🔹 Opening Recognition System
+
+The opening system combines:
+
+* Polyglot opening books
+* ECO move matching
+* Longest-prefix recognition
+
+Flow:
+
+1. Game moves converted to UCI
+2. ECO table scanned for longest matching prefix
+3. Opening name + ECO displayed in UI
+4. Out-of-book transition triggered when theory ends
+
+---
+
+# 🎨 UI / UX Design
+
+Chessau uses a custom voxel-inspired design language.
+
+## Typography System
+
+| Purpose                | Font          |
+| ---------------------- | ------------- |
+| Branding / Hero Titles | Mojangles     |
+| Section Headings       | Space Grotesk |
+| Body Text              | Inter         |
+| Technical / Chess Data | IBM Plex Mono |
+
+---
+
+## Design Philosophy
+
+Goals:
+
+* Dark premium aesthetic
+* Lightweight rendering
+* Geometric layout hierarchy
+* Smooth interactions
+* Responsive gameplay UI
+
+Key features:
+
+* Interactive grid background
+* Hard-shadow voxel styling
+* Tactile button interactions
+* Responsive layouts
+* Minimal animation philosophy
+
+---
+
+# 📁 Project Structure
+
+```text
+Chessau/
+├── app.py
+├── engine.py
+├── requirements.txt
+├── Procfile
+├── books/
+├── static/
+│   ├── main.js
+│   ├── board.js
+│   ├── style.css
+│   ├── sounds/
+│   └── images/
+├── templates/
+│   └── index.html
+└── README.md
+```
+
+---
+
+# 📸 Screenshots
+
+## 🏠 Home Page
+
+Add screenshot here
+
+---
+
+## 🎮 Gameplay
+
+Add screenshot here
+
+---
+
+## 📊 Move Review & Accuracy
+
+Add screenshot here
+
+---
+
+## 📖 Opening Recognition
+
+Add screenshot here
+
+---
+
+# 🚀 Run Locally
+
+## 1. Clone Repository
+
+```bash
+git clone <repo-url>
+cd Chessau
+```
+
+---
+
+## 2. Install Dependencies
 
 ```bash
 pip install -r requirements.txt
-python app.py
-```
-
-Open:
-
-```
-http://127.0.0.1:5000
 ```
 
 ---
 
-## ⚠️ Stockfish Setup
+## 3. Configure Stockfish
 
-Stockfish binary is **not included** in this repository.
+Download Stockfish:
 
-### Linux / Render
+👉 [https://stockfishchess.org/download/](https://stockfishchess.org/download/)
 
-1. Download from:
-   https://stockfishchess.org/download/
+Place binary at:
 
-2. Place it at:
-
-```
+```text
 stockfish/stockfish
 ```
 
-3. Make executable:
+Linux/macOS:
 
 ```bash
 chmod +x stockfish/stockfish
 ```
 
-> The app runs without Stockfish, but Stockfish-specific features will be disabled.
-
 ---
 
-## 🚀 Deploy on Render
+## 4. Run Application
 
-### Steps
-
-1. Push project to GitHub
-
-2. Go to https://render.com → New Web Service
-
-3. Configure:
-
-| Setting       | Value                             |
-| ------------- | --------------------------------- |
-| Environment   | Python                            |
-| Build Command | `pip install -r requirements.txt` |
-| Start Command | `gunicorn app:app`                |
-
-4. Deploy 🚀
-
----
-
-## ⚠️ Render Storage Note
-
-Render uses **ephemeral storage**, meaning:
-
-* `saved_games.json` resets on every deploy
-* Saved games are not persistent
-
-### Options:
-
-* Accept temporary storage (simplest)
-* OR use Render Disk for persistence
-
----
-
-## 📊 Google Analytics
-
-Google Analytics is integrated in `index.html`.
-
-### To enable:
-
-1. Go to https://analytics.google.com
-2. Get Measurement ID (`G-XXXXXXXXXX`)
-3. Replace it in `index.html`
-
----
-
-## 📁 Project Structure
-
+```bash
+python app.py
 ```
-chess-engine/
-├── app.py
-├── engine.py
-├── requirements.txt
-├── Procfile
-├── saved_games.json
-├── stockfish/
-├── sounds/
-├── static/
-└── templates/
+
+Open:
+
+```text
+http://127.0.0.1:5000
 ```
 
 ---
 
-## 🧪 Debug Endpoint
+# ☁️ Deploy on Render
 
-After deployment:
+## Build Command
 
+```bash
+pip install -r requirements.txt
 ```
-/debug
-```
 
-Check:
+## Start Command
 
-```json
-"stockfish_ok": true
+```bash
+gunicorn app:app
 ```
 
 ---
 
-## 📌 Future Improvements
+# ⚠️ Deployment Notes
 
+## Render Free-Tier Constraints
+
+The project was optimized specifically around Render limitations.
+
+Implemented optimizations:
+
+* Persistent Stockfish process
+* Reduced hash/thread usage
+* Lower live-eval depth
+* Separate review depth
+* Stateless FEN-driven backend
+* Lightweight frontend rendering
+
+---
+
+# 🔮 Future Improvements
+
+Potential future upgrades:
+
+* WebSocket-based live engine streaming
 * Multiplayer support
+* WASM-based browser engine
 * Cloud save system
-* WASM-based engine optimization
-* Performance tuning
+* User accounts
+* Opening explorer
+* Engine-vs-engine mode
+* Puzzle generation system
 
 ---
 
-## 💡 Project Status
+# 👨‍💻 Author
 
-> Production-ready — deployed using Flask + Gunicorn on Render.
+## Sujal Ajit Ushir
+
+* First-year student
+* IIIT Kottayam
+
+Chessau was built as a deep exploration into:
+
+* Full-stack architecture
+* Chess-engine integration
+* Async frontend/backend systems
+* UI/UX engineering
+* Performance optimization
+* State synchronization
 
 ---
 
-## 👤 Author
+# 📌 Project Status
 
-**Sujal Ushir**
+✅ Feature-complete
+✅ Stable
+✅ Fully playable
+✅ Deployment-ready
+
+Chessau is now in maintenance/polish phase with core systems complete.
