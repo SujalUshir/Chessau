@@ -350,6 +350,8 @@ const Board = (() => {
     // Show a brief "Out of Book" toast — only once per game.
     if(_leftBook) return;
     _leftBook = true;
+    // Remove any stale toast before creating a new one (prevents duplicates).
+    document.querySelectorAll('.book-exit-toast').forEach(t => t.remove());
     const toast = document.createElement('div');
     toast.className = 'book-exit-toast';
     toast.textContent = '\uD83D\uDCCB Out of Book';
@@ -387,10 +389,12 @@ const Board = (() => {
     }
 
     // For human/HvH moves: now apply the server's book status.
-    // This is the ONLY path that updates _inBook for HvH mode.
+    // This is the ONLY path that updates _inBook for HvH/engine-human-half modes.
     if(inBookOverride === undefined){
       const wasInBook = _inBook;
       _inBook = serverInBook;
+      // If server says we're back in book (e.g. after undo), allow toast to fire again.
+      if(_inBook && _leftBook) _leftBook = false;
       if(wasInBook && !_inBook) _showOutOfBook();  // book → out-of-book (any mode)
     }
 
@@ -512,7 +516,9 @@ const Board = (() => {
       _updateTurnStatus();
       _refreshEval();
       _bmRefresh();
-      _updateOpening();   // refresh opening name after undo (no book override)
+      // refresh opening card after undo; _updateOpening(undefined) will also reset
+      // _leftBook if server says we're back in book (allows toast to fire again later).
+      await _updateOpening();
     }catch(e){ setStatus('dot-x','Undo error: '+e.message); }
   }
 
@@ -528,7 +534,9 @@ const Board = (() => {
       _updateTurnStatus();
       _refreshEval();
       _bmRefresh();
-      _updateOpening();   // refresh opening name after redo (no book override)
+      // refresh opening card after redo; _updateOpening(undefined) will also reset
+      // _leftBook if server says we're back in book (allows toast to fire again later).
+      await _updateOpening();
     }catch(e){ setStatus('dot-x','Redo error: '+e.message); }
   }
 
@@ -821,8 +829,11 @@ const Board = (() => {
 
       const mode=window.App?.getMode();
       if(mode&&mode!=='hvh'){
-        // Engine modes: let _doEngineMove own the complete opening update
-        // (it calls _updateOpening with the authoritative in_book flag).
+        // Engine modes: update the opening card immediately after the human move
+        // so the card is current WHILE the engine is thinking.
+        // _doEngineMove will then call _updateOpening again with the authoritative
+        // in_book flag from the engine response.
+        await _updateOpening(undefined);
         await _doEngineMove(mode);
       } else {
         // HvH: update opening now — server response tells us if still in book.
