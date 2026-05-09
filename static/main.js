@@ -128,6 +128,7 @@ const App = (() => {
       <ul class="nav-links">
         <li><a href="#home" class="${hash==='home'?'active':''}">Home</a></li>
         <li><a href="#play" class="${hash==='play'?'active':''}">Play</a></li>
+        <li><a href="#saves" class="${hash==='saves'?'active':''}">Saved Games</a></li>
         <li><a href="#info" class="${hash==='info'?'active':''}">Info</a></li>
       </ul>`;
     nav.querySelector('#nav-logo').addEventListener('click',()=>navigate('home'));
@@ -222,7 +223,14 @@ const App = (() => {
           <div class="mode-tags"><span class="tag">Opening Book</span> <span class="tag">Analysis</span></div>
           <span class="arrow">↗</span>
         </div>
-        <div class="mode-card disabled" data-mode="engine">
+        <div class="mode-card" data-mode="engine">
+          <span class="icon">♟⚙</span>
+          <h3>Human vs My Engine</h3>
+          <p>Alpha-beta + iterative deepening. Choose difficulty.</p>
+          <div class="mode-tags"><span class="tag">Local AI</span> <span class="tag">Opening Book</span></div>
+          <span class="arrow">↗</span>
+        </div>
+        <div class="mode-card disabled" data-mode="masterbot">
           <span class="icon">🚧</span>
           <h3>Master Bot</h3>
           <p>Custom depth-4 engine.</p>
@@ -652,6 +660,85 @@ const App = (() => {
   /* ════════════════════════════════════════════
      INFO PAGE
   ════════════════════════════════════════════ */
+  
+  /* ════════════════════════════════════════════
+     SAVED GAMES PAGE
+  ════════════════════════════════════════════ */
+  function _deleteSave(id) {
+    let saves = _getSaves();
+    saves = saves.filter(s => s.id !== id);
+    sessionStorage.setItem('chessau_saves', JSON.stringify(saves));
+    if (location.hash === '#saves') {
+      const app=document.getElementById('app');
+      app.querySelectorAll('.page').forEach(el=>el.remove());
+      app.appendChild(renderSavesPage());
+    }
+    _renderSavedGames();
+  }
+
+  function renderSavesPage(){
+    const page=document.createElement('div');
+    page.className='page home-page';
+    
+    const saves = _getSaves();
+    const hasSaves = saves.length > 0;
+    
+    page.innerHTML=`
+      <div class="home-hero">
+        <h2 style="font-family: var(--font-mojangles); font-size: 2.4rem; color: var(--accent-lt); margin-bottom: 12px;">Saved Games</h2>
+        <p class="tagline">Manage your session saves</p>
+      </div>
+      <div class="home-content" style="max-width:800px; width:100%; margin: 20px auto; padding: 0 24px;">
+        ${hasSaves ? `
+          <div style="display:flex;justify-content:flex-end;margin-bottom:16px;">
+            <button class="btn btn-clear-sm" id="page-clear-saves" style="padding: 6px 12px;">Clear All Saves</button>
+          </div>
+          <div class="saves-grid" style="display:flex; flex-direction:column; gap:12px;">
+            ${saves.map(s => `
+              <div class="feature-card" style="display:flex; justify-content:space-between; align-items:center;">
+                <div>
+                  <h4 style="margin-bottom:4px; font-size:1.1rem; color:var(--accent-lt);">${MODE_LABELS[s.mode] || s.mode}</h4>
+                  <p style="font-family:var(--font-mono); font-size:0.75rem; margin-bottom:4px; color:var(--text-muted);">${s.ts}</p>
+                  ${s.opening ? `<p style="color:var(--accent-dk); font-style:italic; font-size:0.8rem; margin-bottom:4px;">${s.opening}</p>` : ''}
+                  <p style="font-size:0.85rem; color:var(--text);">${s.moves.length} moves played</p>
+                </div>
+                <div style="display:flex; flex-direction:column; gap:8px;">
+                  <button class="btn btn-gold btn-restore" data-id="${s.id}" style="padding:4px 12px; font-size:0.7rem;">Restore</button>
+                  <button class="btn btn-clear-sm btn-delete" data-id="${s.id}" style="padding:4px 12px; font-size:0.7rem;">Delete</button>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        ` : `
+          <div class="feature-card" style="text-align:center; padding: 40px;">
+            <h4 style="color:var(--accent-lt); font-size:1.2rem;">No Saves Found</h4>
+            <p style="margin-bottom:20px;">You haven't saved any games in this session.</p>
+            <button class="btn btn-gold" onclick="location.hash='play'">Play a Game</button>
+          </div>
+        `}
+      </div>
+    `;
+
+    if(hasSaves) {
+      page.querySelector('#page-clear-saves').addEventListener('click', () => {
+         _clearSaves();
+         if (location.hash === '#saves') {
+           const app=document.getElementById('app');
+           app.querySelectorAll('.page').forEach(el=>el.remove());
+           app.appendChild(renderSavesPage());
+         }
+      });
+      page.querySelectorAll('.btn-restore').forEach(btn => {
+        btn.addEventListener('click', () => _restoreGame(btn.dataset.id));
+      });
+      page.querySelectorAll('.btn-delete').forEach(btn => {
+        btn.addEventListener('click', () => _deleteSave(btn.dataset.id));
+      });
+    }
+
+    return page;
+  }
+
   function renderInfo(){
     const page=document.createElement('div');
     page.className='page info-page';
@@ -804,6 +891,9 @@ const App = (() => {
         });
         break;
       }
+      case 'saves':
+        document.getElementById('global-grid-bg')?.classList.add('dim-grid');
+        app.appendChild(renderSavesPage()); break;
       case 'info': 
         document.getElementById('global-grid-bg')?.classList.add('dim-grid');
         app.appendChild(renderInfo()); break;

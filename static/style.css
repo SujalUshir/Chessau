@@ -851,7 +851,7 @@ nav {
   padding: 50px 24px 72px;
 }
 .info-page h2 {
-  font-family: var(--font-display);
+  font-family: var(--font-mojangles);
   font-size: clamp(2rem, 5vw, 3.4rem);
   font-weight: 900;
   color: var(--accent-lt);
@@ -1406,3 +1406,7 @@ nav {
 
 .btn-clear-sm { color: var(--danger) !important; border-color: rgba(224, 82, 82, 0.4) !important; }
 .btn-clear-sm:hover { background: rgba(224, 82, 82, 0.1) !important; border-color: var(--danger) !important; }
+
+/* Info Typography Fix */
+.info-page h3 { font-family: var(--font-display); }
+.info-page p, .info-page li { font-family: var(--font-body); }
