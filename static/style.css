@@ -1193,17 +1193,25 @@ nav {
 .home-grid-bg {
   position: absolute;
   inset: 0;
-  pointer-events: none;
   z-index: 0;
-  background-image:
-    linear-gradient(rgba(42,42,42,0.55) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(42,42,42,0.55) 1px, transparent 1px);
-  background-size: 48px 48px;
-  animation: gridDrift 28s linear infinite;
+  display: flex;
+  flex-wrap: wrap;
+  overflow: hidden;
+  align-content: flex-start;
 }
-@keyframes gridDrift {
-  from { background-position: 0 0; }
-  to   { background-position: 48px 48px; }
+.grid-cell {
+  width: 30px;
+  height: 30px;
+  box-sizing: border-box;
+  border-right: 1px solid rgba(42, 42, 42, 0.55);
+  border-bottom: 1px solid rgba(42, 42, 42, 0.55);
+  background-color: transparent;
+  transition: background-color 0.8s ease-out;
+  pointer-events: auto;
+}
+.grid-cell:hover {
+  background-color: rgba(176, 137, 99, 0.25);
+  transition: background-color 0s;
 }
 /* Everything inside home-page sits above the grid */
 .home-page > *:not(.home-grid-bg) { position: relative; z-index: 1; }

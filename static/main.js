@@ -200,25 +200,43 @@ const App = (() => {
         }
       });
     });
-    // Interactive grid glow — tracks cursor position
+    // Interactive grid glow
     {
       const grid = page.querySelector('#home-grid-bg');
       if(grid){
-        const onMove = e => {
-          const r = page.getBoundingClientRect();
-          const x = ((e.clientX - r.left) / r.width * 100).toFixed(1);
-          const y = ((e.clientY - r.top)  / r.height * 100).toFixed(1);
-          grid.style.backgroundImage = [
-            'linear-gradient(rgba(42,42,42,0.55) 1px, transparent 1px)',
-            'linear-gradient(90deg, rgba(42,42,42,0.55) 1px, transparent 1px)',
-            `radial-gradient(600px circle at ${x}% ${y}%, rgba(176,137,99,0.13) 0%, transparent 65%)`
-          ].join(',');
+        const cellSize = 30; // Matches style.css .grid-cell width/height
+        
+        const renderGrid = () => {
+          const w = window.innerWidth;
+          const h = window.innerHeight;
+          // Add a few extra rows/cols to ensure it fills the screen perfectly
+          const cols = Math.ceil(w / cellSize) + 1;
+          const rows = Math.ceil(h / cellSize) + 1;
+          const totalCells = cols * rows;
+          
+          const frag = document.createDocumentFragment();
+          for(let i = 0; i < totalCells; i++) {
+            const cell = document.createElement('div');
+            cell.className = 'grid-cell';
+            frag.appendChild(cell);
+          }
+          grid.innerHTML = '';
+          grid.appendChild(frag);
         };
-        page.addEventListener('mousemove', onMove, {passive:true});
+        
+        renderGrid();
+        
+        let resizeTimer;
+        const onResize = () => {
+          clearTimeout(resizeTimer);
+          resizeTimer = setTimeout(renderGrid, 150);
+        };
+        window.addEventListener('resize', onResize);
+        
         // Clean up when page is removed from DOM
         new MutationObserver((_, obs) => {
           if(!document.body.contains(page)){
-            page.removeEventListener('mousemove', onMove);
+            window.removeEventListener('resize', onResize);
             obs.disconnect();
           }
         }).observe(document.body, {childList:true, subtree:true});
