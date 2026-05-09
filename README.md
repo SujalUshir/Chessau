@@ -346,7 +346,7 @@ Automatic ECO opening recognition with opening-book integration and in-book trac
 💾 Saved Games
 
 Session-based save management with restore and deletion support.
-![Saved Games](screenshots/saves.png)
+![Saved Games](screenshots/save.png)
 
 ℹ️ Info / Architecture
 
