@@ -1,4 +1,4 @@
-# ♟️ Chess Engine Web App with Stockfish Analysis
+# ♟️ Chessau Web App with Stockfish Analysis
 
 ## 🔗 Live Demo
 

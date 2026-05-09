@@ -1315,12 +1315,10 @@ const Board = (() => {
     _inBook=false; _leftBook=false;
     _clearHint(); _prevBestFrom=null; _prevBestTo=null;
     _clearOpening();
-    // Apply the board position returned by the server
     applyState(data);
     _rebuildCap(data.board);
-    _renderMoveList();
     _updateTurnStatus();
-    _updateOpening();
+    _updateOpening(); // floating promise is fine here
     if($histSf)  $histSf.innerHTML='';
     _renderMoveList();
   }

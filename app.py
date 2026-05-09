@@ -1480,8 +1480,13 @@ def load_position():
         if not uci or len(uci) < 4:
             continue
         fr, to = uci[:2], uci[2:4]
+        promo = uci[4].lower() if len(uci) > 4 else None
         try:
             engine.move_piece_notation(engine.board, fr, to)
+            if promo:
+                r2, c2 = engine.notation_to_index(to)
+                engine.board[r2][c2] = promo.upper() if engine.current_turn == 'black' else promo.lower()
+                # current_turn was flipped by move_piece_notation, so if it's black now, white just moved.
             _game_uci_moves.append(fr + to)
             if engine.current_turn == "white":
                 _fullmove_counter += 1
