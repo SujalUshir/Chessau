@@ -963,14 +963,26 @@ const App = (() => {
     };
 
     try {
-      // Fetch total visitor count from GoatCounter public API
-      const res = await fetch('https://chessau.goatcounter.com/counter/TOTAL.json');
+      const res = await fetch('https://chessau.goatcounter.com/counter/%2F.json');
       if(res.ok){
         const data = await res.json();
-        const count = data.count;
-        if(count) {
-          if(footerEl) footerEl.textContent = `${count} Visitors`;
-          if(infoEl) infoEl.textContent = count;
+        const raw = data.count;
+        if(raw !== undefined && raw !== null) {
+          // Parse and format (e.g. 1.2k if large, or add commas)
+          let num = parseInt(raw.toString().replace(/,/g, ''));
+          let display;
+          if(isNaN(num)) {
+            display = raw;
+          } else if(num >= 1000000) {
+            display = (num/1000000).toFixed(1) + 'M';
+          } else if(num >= 1000) {
+            display = (num/1000).toFixed(1) + 'k';
+          } else {
+            display = num.toString();
+          }
+          
+          if(footerEl) footerEl.textContent = `${display} Visitors`;
+          if(infoEl) infoEl.textContent = display;
           return;
         }
       }
