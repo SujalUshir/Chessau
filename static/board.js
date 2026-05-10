@@ -168,6 +168,15 @@ const Board = (() => {
   let dragActive=false, dragFrom=null, dragEl=null, _dox=0, _doy=0;
   let _justSelected=false; // prevent mobile tap from deselecting immediately
 
+  /* ── Move sequence token — incremented before every undo/reset.
+     Any async engine callback captures its seq value; if seq has
+     changed by the time the callback fires, the response is stale
+     and is silently discarded. ── */
+  let _moveSeq = 0;
+
+  /* ── Engine thinking flag — true while _doEngineMove is awaited. ── */
+  let _engineThinking = false;
+
   /* ════════════════════════════════════════════
      EVAL BAR SMOOTHING — module scope so state
      persists across applyState / _refreshEval calls
@@ -548,9 +557,34 @@ const Board = (() => {
 
   async function doUndo(){
     if(!_undoEnabled) return;
+
+    // Cancel any pending engine move by incrementing the sequence token.
+    // Any in-flight _doEngineMove callback will see the mismatch and bail.
+    _moveSeq++;
+    const mySeq = _moveSeq;
+
     if(gameOver) gameOver=false;
+
     try{
-      const data=await POST('/undo',{});
+      const mode = window.App?.getMode();
+      const vsEngine = mode && mode !== 'hvh';
+
+      // Undo the engine's last move first (if applicable)
+      if(vsEngine){
+        // Only undo the engine half when there IS an engine half to undo.
+        // If the player just started the game (0 or 1 half-move) skip the
+        // extra undo so we don't under-shoot the start position.
+        if(halfMoves.length >= 2){
+          await POST('/undo',{});
+          // Bail if a newer undo/reset happened while we awaited
+          if(mySeq !== _moveSeq) return;
+        }
+      }
+
+      // Undo the human move
+      const data = await POST('/undo',{});
+      if(mySeq !== _moveSeq) return;  // stale — discard
+
       _rebuildCap(data.board);
       lastMove=null; selected=null; legal=[];
       _clearHint(); _prevBestFrom=null; _prevBestTo=null;
@@ -559,8 +593,8 @@ const Board = (() => {
       _updateTurnStatus();
       _refreshEval();
       _bmRefresh();
-      // refresh opening card after undo; _updateOpening(undefined) will also reset
-      // _leftBook if server says we're back in book (allows toast to fire again later).
+      // refresh opening card; _updateOpening(undefined) also resets
+      // _leftBook if server says we're back in book.
       await _updateOpening();
     }catch(e){ setStatus('dot-x','Undo error: '+e.message); }
   }
@@ -761,6 +795,12 @@ const Board = (() => {
       }
     }
     dragFrom={r,c,not}; dragActive=false;
+
+    // Capture the pointer on the board so pointermove/pointerup are
+    // reliably delivered even when the finger moves off the source element.
+    // This eliminates the "sticky" ghost-drag on mobile.
+    try{ $board.setPointerCapture(e.pointerId); }catch(_){}
+
     document.addEventListener('pointermove',onDragMove);
     document.addEventListener('pointerup',  onDragEnd);
     document.addEventListener('pointercancel', onDragEnd);
@@ -932,11 +972,20 @@ const Board = (() => {
      ENGINE MOVE
   ════════════════════════════════════════════ */
   async function _doEngineMove(mode){
+    // Capture the current sequence token.  If _moveSeq changes while we're
+    // awaiting the server (e.g. user pressed Undo) we discard the response.
+    const mySeq = _moveSeq;
+    _engineThinking = true;
     setStatus('dot-t','Engine thinking…');
     const ep=mode==='stockfish'?'/move/stockfish':'/move/engine';
     const body=mode==='stockfish'?{}:{depth:_engineDepth};
     try{
       const data=await POST(ep,body);
+      _engineThinking = false;
+
+      // Stale check — undo was pressed while engine was thinking
+      if(mySeq !== _moveSeq) return;
+
       const mv=data.engine_move;
       if(mv&&mv.from&&mv.to){
         const{row:tr,col:tc}=n2i(mv.to);
@@ -957,6 +1006,8 @@ const Board = (() => {
       _updateTurnStatus();
       _bmRefresh();
     }catch(e){
+      _engineThinking = false;
+      if(mySeq !== _moveSeq) return; // stale error after undo — ignore silently
       setStatus('dot-x','Engine error: '+e.message);
       const data=await GET('/state'); applyState(data);
     }
@@ -1274,6 +1325,9 @@ const Board = (() => {
   ════════════════════════════════════════════ */
   async function init(opts){
     $board       = opts.container;
+    // Prevent the browser from intercepting touch events (scroll/zoom) on the
+    // board so pointer events fire reliably for both tap-to-move and drag.
+    if($board) $board.style.touchAction = 'none';
     $status      = opts.statusEl;
     $eFill       = opts.evalEngFill  || null;
     $sFill       = opts.evalSfFill   || null;
@@ -1335,6 +1389,7 @@ const Board = (() => {
   }
 
   async function resetGame(){
+    _moveSeq++; // invalidate any in-flight engine callbacks
     try{ await POST('/reset',{}); }
     catch(e){ setStatus('dot-x','Reset error: '+e.message); return; }
     selected=null; legal=[]; lastMove=null;
