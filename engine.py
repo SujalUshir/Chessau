@@ -1,4 +1,6 @@
 import random
+import logging as _log
+_logger = _log.getLogger(__name__)
 
 ########################################
 # BOARD INITIALIZATION
@@ -54,17 +56,15 @@ position_history = {}
 # ACTUAL GAME FUNCTIONS
 ########################################
 def engine_move(board,depth):
-    print(f"{current_turn} engine thinking...")
-
-
+    _logger.debug("%s engine thinking...", current_turn)
     best=iterative_deepening(board,depth)
     if best is None:
-        print("Game over")
+        _logger.debug("Game over")
         return False
-    print(f"Engine plays: {best[0]} -> {best[1]}")
+    _logger.debug("Engine plays: %s -> %s", best[0], best[1])
     move_piece_notation(board,best[0],best[1])
     if is_checkmate(board,current_turn) or is_stalemate(board,current_turn):
-        print("Game already finished")
+        _logger.debug("Game already finished")
         return False
     return True
 
@@ -72,7 +72,7 @@ def human_move(board):
     move=input("Enter move (e2 e4): ").split()
 
     if len(move)!=2:
-        print("Invalid format")
+        _logger.debug("Invalid format")
         return
     from_sq,to_sq=move
     move_piece_notation(board,from_sq,to_sq)
@@ -171,11 +171,10 @@ def index_to_notation(row,col):
 # BOARD DISPLAY
 ########################################
 def print_board(board):
-    print()
+    # Terminal-mode display only; not called from Flask routes.
     for i in range(8):
-        print(8-i," ".join(board[i]))
-    print(" a b c d e f g h")
-    print()
+        _logger.debug("%d %s", 8-i, " ".join(board[i]))
+    _logger.debug(" a b c d e f g h")
 
 
 ########################################
@@ -689,25 +688,25 @@ def move_piece_notation(board,from_square,to_square):
     piece=board[from_row][from_col]
 
     if piece==".":
-        print("No piece at source square")
+        _logger.debug("No piece at source square")
         return
 
     if current_turn=="white" and piece.islower():
-        print("It is white's turn")
+        _logger.debug("It is white's turn")
         return
     if current_turn=="black" and piece.isupper():
-        print("It is black's turn")
+        _logger.debug("It is black's turn")
         return
 
     if not is_valid_move(board,from_row,from_col,to_row,to_col,piece):
-        print("Invalid move")
+        _logger.debug("Invalid move")
         return
 
     if move_puts_own_king_in_check(board,from_row,from_col,to_row,to_col,piece):
-                print("Illegal move: King would be in check")
-                return
+        _logger.debug("Illegal move: King would be in check")
+        return
     
-    print(f"{current_turn}: {from_square} -> {to_square}")   
+    _logger.debug("%s: %s -> %s", current_turn, from_square, to_square)
     previous_en_passant=en_passant_target
     target_piece = board[to_row][to_col]
     move_piece(board,from_row,from_col,to_row,to_col)
@@ -768,19 +767,17 @@ def move_piece_notation(board,from_square,to_square):
 
     # Terminal-mode game-over prints (only relevant when running engine.py directly).
     if is_checkmate(board, current_turn):
-        print(f"Checkmate! {'white' if current_turn=='black' else 'black'} wins!")
+        _logger.debug("Checkmate! %s wins!", 'white' if current_turn=='black' else 'black')
         return
     elif halfmove_clock >= 100:
-        print_board(board)
-        print("Draw by 50-move rule!")
+        _logger.debug("Draw by 50-move rule!")
         return
     elif is_stalemate(board, current_turn):
-        print("Stalemate! Draw.")
+        _logger.debug("Stalemate! Draw.")
         return
     elif is_king_in_check(board, current_turn):
-        print(f"{current_turn} king is in check!")
-    print_board(board)
-    print("--------------------------------")
+        _logger.debug("%s king is in check!", current_turn)
+    _logger.debug("[engine] board updated")
     
 ########################################
 # QUIESCENCE SEARCH
@@ -987,13 +984,12 @@ def iterative_deepening(board,max_depth):
     best_move=None
 
     for depth in range(1,max_depth+1):
-        print(f"Searching depth {depth}...")
+        _logger.debug("Searching depth %d...", depth)
         move, score = find_best_move(board, depth)
-
         if move is not None:
             best_move=move
             principal_variation_move=move
-            print("Best move at depth",depth,":",best_move)
+            _logger.debug("Best move at depth %d: %s", depth, best_move)
     return best_move,score
 
 
@@ -1081,7 +1077,7 @@ if __name__ == "__main__":
     #     print("Game over")
     # else:
     #     move_piece_notation(board,best[0],best[1])
-    print("1 - Engine vs Engine")
+    print("1 - Engine vs Engine")  # terminal mode only
     print("2 - Human vs Engine")
 
     choice=input("Select mode: ")

@@ -199,11 +199,12 @@ const Board = (() => {
       $evalBarsEl,
       $fenBtn,
       $openingBoxEl,   // outer card — show/hide
-      $openingEl;      // inner content div — innerHTML
+      $openingEl;      // inner content div - DOM-rendered
 
   /* ── notation ── */
   const i2n = (r,c) => String.fromCharCode(97+c)+(8-r);
   const n2i = s     => ({row:8-parseInt(s[1]), col:s.charCodeAt(0)-97});
+  const UCI_RE = /^[a-h][1-8][a-h][1-8][qrbn]?$/;
 
   /* ── API ── */
   async function GET(p){
@@ -216,7 +217,11 @@ const Board = (() => {
 
   function setStatus(cls,msg){
     if(!$status) return;
-    $status.innerHTML=`<span class="dot ${cls}"></span>${msg}`;
+    $status.replaceChildren();
+    const dot = document.createElement('span');
+    dot.className = `dot ${cls}`;
+    $status.appendChild(dot);
+    $status.appendChild(document.createTextNode(String(msg ?? '')));
   }
 
   /* ════════════════════════════════════════════
@@ -369,53 +374,61 @@ const Board = (() => {
     setTimeout(()=>{ toast.remove(); }, 2300);
   }
 
-  async function _updateOpening(inBookOverride){
-    // inBookOverride: true      = engine payload says book move was played
-    //                 false     = engine payload says engine calculated (left book)
-    //                 undefined = human move or HvH — use server's data.in_book instead
-    if(!$openingEl || !$openingBoxEl) return;
+  // Safe DOM helper: create an element with a class and optional text content.
+  function _el(tag, cls, text){
+    const e = document.createElement(tag);
+    if(cls)  e.className = cls;
+    if(text !== undefined) e.textContent = text;
+    return e;
+  }
 
-    // For engine responses, update _inBook immediately (authoritative source).
-    // For human/HvH moves, defer _inBook update until we have the server response.
+  async function _updateOpening(inBookOverride){
+    if(!$openingEl || !$openingBoxEl) return;
     if(inBookOverride === true){
       _inBook = true;
     } else if(inBookOverride === false){
-      if(_inBook) _showOutOfBook();   // book → engine transition
+      if(_inBook) _showOutOfBook();
       _inBook = false;
     }
-    // inBookOverride === undefined → resolved below from data.in_book
 
     let name = null, eco = null, serverInBook = null;
     try{
       const data = await GET('/opening');
-      if(!$openingEl || !$openingBoxEl) return;   // navigated away after fetch
-      name       = data.name    || null;
-      eco        = data.eco     || null;
+      if(!$openingEl || !$openingBoxEl) return;
+      name         = data.name    || null;
+      eco          = data.eco     || null;
       serverInBook = (data.in_book === true);
     }catch(_){
       _clearOpening();
       return;
     }
 
-    // For human/HvH moves: now apply the server's book status.
-    // This is the ONLY path that updates _inBook for HvH/engine-human-half modes.
     if(inBookOverride === undefined){
       const wasInBook = _inBook;
       _inBook = serverInBook;
-      // If server says we're back in book (e.g. after undo), allow toast to fire again.
       if(_inBook && _leftBook) _leftBook = false;
-      if(wasInBook && !_inBook) _showOutOfBook();  // book → out-of-book (any mode)
+      if(wasInBook && !_inBook) _showOutOfBook();
     }
 
-    // Render the opening card
+    // —— Render opening card using safe DOM API (no innerHTML) ——
+    $openingEl.innerHTML = '';
     if(name){
-      const ecoHtml   = eco    ? `<div class="ob-eco-row"><span class="ob-eco-badge">${eco}</span></div>` : '';
-      const badgeHtml = _inBook? `<div class="ob-book-row"><span class="ob-badge">📘 Book Move</span></div>` : '';
-      $openingEl.innerHTML = `<div class="ob-name">${name}</div>${ecoHtml}${badgeHtml}`;
+      $openingEl.appendChild(_el('div', 'ob-name', name));
+      if(eco){
+        const ecoRow = _el('div', 'ob-eco-row');
+        ecoRow.appendChild(_el('span', 'ob-eco-badge', eco));
+        $openingEl.appendChild(ecoRow);
+      }
+      if(_inBook){
+        const bRow = _el('div', 'ob-book-row');
+        bRow.appendChild(_el('span', 'ob-badge', '\uD83D\uDCD8 Book Move'));
+        $openingEl.appendChild(bRow);
+      }
       $openingBoxEl.classList.remove('hidden');
     } else if(_inBook){
-      // In book but ECO name not yet matched (very early moves, < 2 half-moves)
-      $openingEl.innerHTML = `<div class="ob-book-row"><span class="ob-badge">📘 Book Move</span></div>`;
+      const bRow = _el('div', 'ob-book-row');
+      bRow.appendChild(_el('span', 'ob-badge', '\uD83D\uDCD8 Book Move'));
+      $openingEl.appendChild(bRow);
       $openingBoxEl.classList.remove('hidden');
     } else {
       _clearOpening();
@@ -443,7 +456,7 @@ const Board = (() => {
 
   function _renderMoveList(){
     if(!$histSf) return;
-    $histSf.innerHTML='';
+    $histSf.replaceChildren();
 
     for(let i=0;i<halfMoves.length;i+=2){
       const row=document.createElement('div');
@@ -456,35 +469,56 @@ const Board = (() => {
       const cur   = halfMoves.length - 1;
 
       const renderHalf = (uci, rev, isCur) => {
-        if(!uci) return '';
+        if(!uci) return null;
 
         const cls  = rev ? _classifyFromReview(rev) : null;
-        const sym  = cls ? `<span class="move-sym ${cls.cls}" title="${cls.label}">${cls.sym}</span>` : '';
+        const wrap = document.createElement('span');
+        wrap.className = `h-move${isCur ? ' cur' : ''}`;
+
+        const moveEl = document.createElement('span');
+        moveEl.className = 'move-uci';
+        moveEl.textContent = uci;
+        wrap.appendChild(moveEl);
+
+        if(cls){
+          const symEl = document.createElement('span');
+          symEl.className = `move-sym ${cls.cls}`;
+          symEl.title = cls.label;
+          symEl.textContent = cls.sym;
+          wrap.appendChild(symEl);
+        }
 
         // Show best alternative if played differs from best
-        let bestLine = '';
         if(rev && rev.best && rev.best !== uci){
-          bestLine = `<span class="move-best" title="Best: ${rev.best}">→ ${rev.best}</span>`;
+          const bestEl = document.createElement('span');
+          bestEl.className = 'move-best';
+          bestEl.title = `Best: ${rev.best}`;
+          bestEl.textContent = `→ ${rev.best}`;
+          wrap.appendChild(bestEl);
         }
 
         // Show eval change as small subscript
-        let evalLine = '';
         if(rev && (rev.eval_before != null || rev.eval_after != null)){
           const eb = _fmtEval(rev.eval_before);
           const ea = _fmtEval(rev.eval_after);
-          evalLine = `<span class="move-eval">${eb} → ${ea}</span>`;
+          const evalEl = document.createElement('span');
+          evalEl.className = 'move-eval';
+          evalEl.textContent = `${eb} → ${ea}`;
+          wrap.appendChild(evalEl);
         }
 
-        return `<span class="h-move${isCur?' cur':''}">`+
-               `<span class="move-uci">${uci}</span>${sym}`+
-               `${bestLine}${evalLine}`+
-               `</span>`;
+        return wrap;
       };
 
-      row.innerHTML =
-        `<span class="h-num">${Math.floor(i/2)+1}.</span>` +
-        renderHalf(wMove, wRev, cur===i) +
-        renderHalf(bMove, bRev, bMove && cur===i+1);
+      const num = document.createElement('span');
+      num.className = 'h-num';
+      num.textContent = `${Math.floor(i/2)+1}.`;
+      row.appendChild(num);
+
+      const whiteHalf = renderHalf(wMove, wRev, cur===i);
+      const blackHalf = renderHalf(bMove, bRev, bMove && cur===i+1);
+      if(whiteHalf) row.appendChild(whiteHalf);
+      if(blackHalf) row.appendChild(blackHalf);
 
       $histSf.appendChild(row);
     }
@@ -586,7 +620,7 @@ const Board = (() => {
     if(_bmPending||gameOver) return;
     _bmPending=true;
     _bmShowPanel();
-    _bmSetContent('<div class="bm-loading">Computing…</div>');
+    _bmSetLoading('Computing…');
     GET('/bestmove/current')
       .then(data=>{
         _bmPending=false;
@@ -597,7 +631,7 @@ const Board = (() => {
         render();
         _bmRenderCurrentPanel(data);
       })
-      .catch(()=>{ _bmPending=false; _clearHint(); render(); _bmSetContent('<div class="bm-loading">—</div>'); });
+      .catch(()=>{ _bmPending=false; _clearHint(); render(); _bmSetLoading('—'); });
   }
 
   async function _bmCapturePrevBest(){
@@ -618,18 +652,13 @@ const Board = (() => {
       const best = _prevBestFrom+_prevBestTo;
       const played = playedFrom+playedTo;
       _bmShowPanel();
-      _bmSetContent(`
-        <div class="bm-row">
-          <span class="bm-lbl">Played</span>
-          <span class="bm-val">${played}</span>
-        </div>
-        <div class="bm-row">
-          <span class="bm-lbl">Best was</span>
-          <span class="bm-val ${best===played?'bm-match':''}">${best}</span>
-        </div>`);
+      _bmSetRows([
+        { label: 'Played', value: played },
+        { label: 'Best was', value: best, match: best === played },
+      ]);
     } else {
       _bmShowPanel();
-      _bmSetContent('<div class="bm-loading">No suggestion.</div>');
+      _bmSetLoading('No suggestion.');
     }
   }
 
@@ -637,22 +666,39 @@ const Board = (() => {
     const eng = data.engine    || '—';
     const sf  = data.stockfish || '—';
     _bmShowPanel();
-    _bmSetContent(`
-      <div class="bm-row">
-        <span class="bm-lbl">Engine</span>
-        <span class="bm-val">${eng}</span>
-      </div>
-      <div class="bm-row">
-        <span class="bm-lbl">Stockfish</span>
-        <span class="bm-val">${sf}</span>
-      </div>`);
+    _bmSetRows([
+      { label: 'Engine', value: eng },
+      { label: 'Stockfish', value: sf },
+    ]);
   }
 
-  function _bmSetContent(html){ if($bmPanel) $bmPanel.innerHTML=html; }
+  function _bmSetLoading(text){
+    if(!$bmPanel) return;
+    const el = document.createElement('div');
+    el.className = 'bm-loading';
+    el.textContent = text;
+    $bmPanel.replaceChildren(el);
+  }
+  function _bmSetRows(rows){
+    if(!$bmPanel) return;
+    $bmPanel.replaceChildren();
+    for(const row of rows){
+      const wrap = document.createElement('div');
+      wrap.className = 'bm-row';
+      const label = document.createElement('span');
+      label.className = 'bm-lbl';
+      label.textContent = row.label;
+      const value = document.createElement('span');
+      value.className = `bm-val${row.match ? ' bm-match' : ''}`;
+      value.textContent = row.value;
+      wrap.append(label, value);
+      $bmPanel.appendChild(wrap);
+    }
+  }
   function _bmShowPanel(){ document.getElementById('bm-box')?.classList.remove('hidden'); }
   function _bmHidePanel(){
     document.getElementById('bm-box')?.classList.add('hidden');
-    if($bmPanel) $bmPanel.innerHTML='';
+    if($bmPanel) $bmPanel.replaceChildren();
   }
   function _bmUpdateHead(){
     const head=document.getElementById('bm-head');
@@ -1261,8 +1307,8 @@ const Board = (() => {
     _leftBook  = false;
     _bmMode='none'; _bmPending=false;
 
-    if($histSf)  $histSf.innerHTML='';
-    if($bmPanel) $bmPanel.innerHTML='';
+    if($histSf)  $histSf.replaceChildren();
+    if($bmPanel) $bmPanel.replaceChildren();
     _clearOpening();
 
     if($undo){ const n=$undo.cloneNode(true); $undo.replaceWith(n); $undo=n; $undo.addEventListener('click',doUndo); }
@@ -1299,8 +1345,8 @@ const Board = (() => {
     window._chkSq=null;
     _clearHint(); _prevBestFrom=null; _prevBestTo=null;
     _bmPending=false;
-    if($histSf)    $histSf.innerHTML='';
-    if($bmPanel)   $bmPanel.innerHTML='';
+    if($histSf)    $histSf.replaceChildren();
+    if($bmPanel)   $bmPanel.replaceChildren();
     _clearOpening();
     _inBook  = false;
     _leftBook = false;
@@ -1327,7 +1373,7 @@ const Board = (() => {
    */
   function applyRestoredState(data, moves){
     // Rebuild internal move list (no review data — just UCI strings)
-    halfMoves  = moves ? moves.slice() : [];
+    halfMoves  = Array.isArray(moves) ? moves.filter(m => typeof m === 'string' && UCI_RE.test(m)) : [];
     reviewData = halfMoves.map(()=>null);
     // Clear game-over and selection state
     gameOver=false; selected=null; legal=[]; lastMove=null;
@@ -1339,7 +1385,7 @@ const Board = (() => {
     _rebuildCap(data.board);
     _updateTurnStatus();
     _updateOpening(); // floating promise is fine here
-    if($histSf)  $histSf.innerHTML='';
+    if($histSf)  $histSf.replaceChildren();
     _renderMoveList();
   }
 

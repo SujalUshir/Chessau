@@ -1,4 +1,8 @@
 # ♟️ Chessau — Modern Chess Analysis Platform
+![Python](https://img.shields.io/badge/Python-3.x-blue)
+![Flask](https://img.shields.io/badge/Flask-Backend-black)
+![Stockfish](https://img.shields.io/badge/Engine-Stockfish-orange)
+![Status](https://img.shields.io/badge/Status-Stable-success)
 
 ## 🔗 Live Demo
 
@@ -22,6 +26,7 @@ The project combines:
 * Responsive modern UI/UX
 
 Chessau was designed as a lightweight but feature-rich chess experience inspired by platforms like Chess.com and Lichess while maintaining a fully custom architecture.
+The platform emphasizes low-latency gameplay, lightweight architecture, and production-style frontend/backend synchronization.
 
 ---
 
@@ -32,7 +37,7 @@ Chessau was designed as a lightweight but feature-rich chess experience inspired
 * Human vs Human
 * Human vs Stockfish
 * Human vs MyEngine
-* Master Bot (experimental / disabled)
+* Master Bot (currently unavailable)
 
 ---
 
@@ -214,7 +219,7 @@ Implemented concepts:
 Limitations:
 
 * Python-based node search becomes slow at high depths
-* Experimental Master Bot mode remains disabled for stability
+* Advanced Master Bot mode remains unavailable due to performance constraints of deep Python-based search.
 
 ---
 
@@ -313,6 +318,92 @@ Chessau/
 │   └── index.html
 └── README.md
 ```
+
+## 📊 Analytics & Monitoring
+
+Chessau uses GoatCounter for lightweight privacy-friendly analytics.
+
+The platform tracks:
+- Total visitors
+- SPA route/page activity
+- General usage trends
+
+The integration is intentionally lightweight and does not use invasive user tracking or cookies.
+
+---
+
+# 🔒 Security & Stability
+
+Chessau was audited and hardened before its final public deployment. The following measures are in place:
+
+## Server-Side Move Validation
+
+Every move submitted to the API is independently validated server-side:
+
+- Source piece ownership is verified against the current turn
+- Full legal-move legality check via the custom engine
+- King-in-check detection prevents exposing the king
+- Promotion pieces are validated against an allowlist (`Q R B N`)
+- UCI replay moves are validated with a strict regex (`[a-h][1-8][a-h][1-8][qrbn]?`) before being applied
+
+The client never has authority over game legality — the server enforces it independently.
+
+## Single-Worker Architecture (Intentional)
+
+Gunicorn is deployed with `--workers 1`. This is a deliberate architecture decision:
+
+Chessau uses global shared in-memory state (`engine.board`, `_undo_stack`, `_move_history`) to maintain an authoritative game state. Multiple workers would each hold an independent copy of this state, causing game desyncs and inconsistent API responses.
+
+The Procfile documents this constraint explicitly. Migrating to multi-worker would require a proper session store (Redis etc.) and is not in scope for this project.
+
+## Payload Size Protection
+
+- Flask `MAX_CONTENT_LENGTH` is set to 256 KB — requests exceeding this are rejected with 413 before reaching any route handler
+- `/save_game` caps move lists to 500 entries and retains only the last 200 saved games
+- `/load_position` caps replay restores to 300 moves and rejects malformed UCI strings
+- `result` field is validated against an allowlist (`1-0`, `0-1`, `1/2-1/2`, `?`)
+
+## Rate Limiting
+
+`flask-limiter` applies lightweight in-process limits:
+
+- Move and mutation routes: `30/min`
+- Analysis/review routes: `15/min`
+- Lightweight GET routes: `60/min`
+
+429 responses are JSON-safe so the frontend can fail gracefully.
+
+## Atomic File Writes
+
+`saved_games.json` is written via a temp-file-then-rename pattern (`tempfile.mkstemp` + `os.replace`). If the process is killed mid-write, the previous file is preserved intact.
+
+## Stockfish Process Safety
+
+- A single persistent Stockfish subprocess is shared across all requests, guarded by a `threading.Lock`
+- Analysis depth is server-controlled and clamped to `MAX_ENGINE_DEPTH = 5`
+- Custom engine depth from client payloads is clamped to a maximum of 5 to prevent CPU exhaustion
+- Stockfish crash detection + automatic process respawn is implemented
+- FEN strings are structurally validated before being sent to Stockfish
+
+## Internal Endpoints
+
+- `/debug` route has been removed — it previously exposed server filesystem paths and directory listings to unauthenticated requests
+- `/test_sf` is gated behind `app.debug` — returns 403 in production
+
+## Security Headers
+
+Every response includes:
+
+| Header | Value |
+|---|---|
+| `X-Content-Type-Options` | `nosniff` |
+| `X-Frame-Options` | `DENY` |
+| `Referrer-Policy` | `strict-origin-when-cross-origin` |
+| `Content-Security-Policy` | Scoped to self + Google Fonts + GoatCounter |
+
+## Privacy-Friendly Analytics
+
+GoatCounter collects no personal data, sets no cookies, and is loaded asynchronously. The script is loaded over HTTPS only.
 
 ---
 
@@ -419,8 +510,10 @@ pip install -r requirements.txt
 ## Start Command
 
 ```bash
-gunicorn app:app
+gunicorn app:app --workers 1 --timeout 120 --log-level warning
 ```
+
+> **Important:** `--workers 1` is required. Chessau uses shared in-memory game state that is not safe for multi-worker concurrency. See `SECURITY.md` for details.
 
 ---
 
@@ -474,7 +567,7 @@ Chessau was built as a deep exploration into:
 
 ---
 
-# 📌 Project Status
+# 📌 Current Status
 
 ✅ Feature-complete
 ✅ Stable

@@ -306,7 +306,7 @@ def _sf_best_move_from_fen(fen_str):
         if uci and len(uci) >= 4:
             return uci[:4]
     except Exception as ex:
-        print("SF ERROR:", ex)
+        log.debug("SF ERROR: %s", ex)
     return None
 
 def _classify_move(eval_before, best_eval, eval_after, moving_color, sacrificed_material=0):
@@ -1034,36 +1034,7 @@ def save_game():
         log.error(traceback.format_exc())
         return jsonify({"error": str(ex)}), 500
 
-@app.get("/debug")
-def debug():
-    sounds_dir = os.path.join(PROJECT_DIR, "sounds")
-    static_sounds_dir = os.path.join(PROJECT_DIR, "static", "sounds")
-
-    sf_path = os.path.join(PROJECT_DIR, "bin", "stockfish")
-    sf_exists = os.path.exists(sf_path)
-    return jsonify({
-        "stockfish_ok":            STOCKFISH_OK,
-        "stockfish_error":         STOCKFISH_ERR,
-        "stockfish_binary_exists": sf_exists,
-        "stockfish_binary_path":   sf_path,
-        "cwd":               os.getcwd(),
-        "project_dir":       PROJECT_DIR,
-        "files_in_cwd":      os.listdir("."),
-        "move_history_len":  len(_move_history),
-        "fullmove_counter":  _fullmove_counter,
-        "sounds_at_root":    {
-            "dir_exists":  os.path.isdir(sounds_dir),
-            "move.wav":    os.path.exists(os.path.join(sounds_dir, "move.wav")),
-            "capture.wav": os.path.exists(os.path.join(sounds_dir, "capture.wav")),
-            "check.wav":   os.path.exists(os.path.join(sounds_dir, "check.wav")),
-        },
-        "sounds_in_static":  {
-            "dir_exists":  os.path.isdir(static_sounds_dir),
-            "move.wav":    os.path.exists(os.path.join(static_sounds_dir, "move.wav")),
-            "capture.wav": os.path.exists(os.path.join(static_sounds_dir, "capture.wav")),
-            "check.wav":   os.path.exists(os.path.join(static_sounds_dir, "check.wav")),
-        },
-    })
+# /debug removed: it exposed filesystem paths and process state.
 
 if __name__ == "__main__":
     app.run(debug=False)

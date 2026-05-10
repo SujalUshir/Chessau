@@ -13,6 +13,15 @@ const App = (() => {
   let playerColor = 'white';
   let selectedBot = null;
 
+  // —— XSS-safe HTML escape helper ——
+  // Used whenever user-influenced strings (mode names, opening text,
+  // timestamps from sessionStorage) are inserted via innerHTML.
+  function esc(s){
+    const d = document.createElement('div');
+    d.textContent = String(s ?? '');
+    return d.innerHTML;
+  }
+
   /* ── Settings ── */
   let cfg = {
     evalBars: true,
@@ -103,11 +112,17 @@ const App = (() => {
     const whiteStrip = document.querySelector('#white-strip .player-name');
     if(blackStrip){
       const topLabel = _resolvedColor==='black' ? youLabel : oppName;
-      blackStrip.innerHTML=`<span class="p-dot b" id="dot-b"></span>${topLabel}`;
+      const dot = document.createElement('span');
+      dot.className = 'p-dot b';
+      dot.id = 'dot-b';
+      blackStrip.replaceChildren(dot, document.createTextNode(topLabel));
     }
     if(whiteStrip){
       const botLabel = _resolvedColor==='black' ? oppName : youLabel;
-      whiteStrip.innerHTML=`<span class="p-dot w" id="dot-w"></span>${botLabel}`;
+      const dot = document.createElement('span');
+      dot.className = 'p-dot w';
+      dot.id = 'dot-w';
+      whiteStrip.replaceChildren(dot, document.createTextNode(botLabel));
     }
 
     Board.setEngineDepth(selectedBot?.depth || 3);
@@ -688,39 +703,81 @@ const App = (() => {
         <h2 style="font-family: var(--font-mojangles); font-size: 2.4rem; color: var(--accent-lt); margin-bottom: 12px;">Saved Games</h2>
         <p class="tagline">Manage your session saves</p>
       </div>
-      <div class="home-content" style="max-width:800px; width:100%; margin: 20px auto; padding: 0 24px;">
-        ${hasSaves ? `
-          <div style="display:flex;justify-content:flex-end;margin-bottom:16px;">
-            <button class="btn btn-clear-sm" id="page-clear-saves" style="padding: 6px 12px;">Clear All Saves</button>
-          </div>
-          <div class="saves-grid" style="display:flex; flex-direction:column; gap:12px;">
-            ${saves.map(s => `
-              <div class="feature-card" style="display:flex; justify-content:space-between; align-items:center;">
-                <div>
-                  <h4 style="margin-bottom:4px; font-size:1.1rem; color:var(--accent-lt);">${MODE_LABELS[s.mode] || s.mode}</h4>
-                  <p style="font-family:var(--font-mono); font-size:0.75rem; margin-bottom:4px; color:var(--text-muted);">${s.ts}</p>
-                  ${s.opening ? `<p style="color:var(--accent-dk); font-style:italic; font-size:0.8rem; margin-bottom:4px;">${s.opening}</p>` : ''}
-                  <p style="font-size:0.85rem; color:var(--text);">${s.moves.length} moves played</p>
-                </div>
-                <div style="display:flex; flex-direction:column; gap:8px;">
-                  <button class="btn btn-gold btn-restore" data-id="${s.id}" style="padding:4px 12px; font-size:0.7rem;">Restore</button>
-                  <button class="btn btn-clear-sm btn-delete" data-id="${s.id}" style="padding:4px 12px; font-size:0.7rem;">Delete</button>
-                </div>
-              </div>
-            `).join('')}
-          </div>
-        ` : `
-          <div class="feature-card" style="text-align:center; padding: 40px;">
-            <h4 style="color:var(--accent-lt); font-size:1.2rem;">No Saves Found</h4>
-            <p style="margin-bottom:20px;">You haven't saved any games in this session.</p>
-            <button class="btn btn-gold" onclick="location.hash='play'">Play a Game</button>
-          </div>
-        `}
-      </div>
+      <div class="home-content" style="max-width:800px; width:100%; margin: 20px auto; padding: 0 24px;"></div>
     `;
 
+    const content = page.querySelector('.home-content');
     if(hasSaves) {
-      page.querySelector('#page-clear-saves').addEventListener('click', () => {
+      const controls = document.createElement('div');
+      controls.style.cssText = 'display:flex;justify-content:flex-end;margin-bottom:16px;';
+
+      const clearBtn = document.createElement('button');
+      clearBtn.className = 'btn btn-clear-sm';
+      clearBtn.id = 'page-clear-saves';
+      clearBtn.style.cssText = 'padding: 6px 12px;';
+      clearBtn.textContent = 'Clear All Saves';
+      controls.appendChild(clearBtn);
+      content.appendChild(controls);
+
+      const grid = document.createElement('div');
+      grid.className = 'saves-grid';
+      grid.style.cssText = 'display:flex; flex-direction:column; gap:12px;';
+      content.appendChild(grid);
+
+      for(const s of saves){
+        const card = document.createElement('div');
+        card.className = 'feature-card';
+        card.style.cssText = 'display:flex; justify-content:space-between; align-items:center;';
+
+        const info = document.createElement('div');
+        const title = document.createElement('h4');
+        title.style.cssText = 'margin-bottom:4px; font-size:1.1rem; color:var(--accent-lt);';
+        title.textContent = MODE_LABELS[s.mode] || s.mode || 'Saved Game';
+        info.appendChild(title);
+
+        const ts = document.createElement('p');
+        ts.style.cssText = 'font-family:var(--font-mono); font-size:0.75rem; margin-bottom:4px; color:var(--text-muted);';
+        ts.textContent = s.ts || '';
+        info.appendChild(ts);
+
+        if(s.opening){
+          const opening = document.createElement('p');
+          opening.style.cssText = 'color:var(--accent-dk); font-style:italic; font-size:0.8rem; margin-bottom:4px;';
+          opening.textContent = s.opening;
+          info.appendChild(opening);
+        }
+
+        const moveCount = Array.isArray(s.moves) ? s.moves.length : 0;
+        const meta = document.createElement('p');
+        meta.style.cssText = 'font-size:0.85rem; color:var(--text);';
+        meta.textContent = `${moveCount} moves played`;
+        info.appendChild(meta);
+        card.appendChild(info);
+
+        const actions = document.createElement('div');
+        actions.style.cssText = 'display:flex; flex-direction:column; gap:8px;';
+
+        const restoreBtn = document.createElement('button');
+        restoreBtn.className = 'btn btn-gold btn-restore';
+        restoreBtn.dataset.id = String(s.id ?? '');
+        restoreBtn.style.cssText = 'padding:4px 12px; font-size:0.7rem;';
+        restoreBtn.textContent = 'Restore';
+        restoreBtn.addEventListener('click', () => _restoreGame(restoreBtn.dataset.id));
+        actions.appendChild(restoreBtn);
+
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'btn btn-clear-sm btn-delete';
+        deleteBtn.dataset.id = String(s.id ?? '');
+        deleteBtn.style.cssText = 'padding:4px 12px; font-size:0.7rem;';
+        deleteBtn.textContent = 'Delete';
+        deleteBtn.addEventListener('click', () => _deleteSave(deleteBtn.dataset.id));
+        actions.appendChild(deleteBtn);
+
+        card.appendChild(actions);
+        grid.appendChild(card);
+      }
+
+      clearBtn.addEventListener('click', () => {
          _clearSaves();
          if (location.hash === '#saves') {
            const app=document.getElementById('app');
@@ -728,12 +785,28 @@ const App = (() => {
            app.appendChild(renderSavesPage());
          }
       });
-      page.querySelectorAll('.btn-restore').forEach(btn => {
-        btn.addEventListener('click', () => _restoreGame(btn.dataset.id));
-      });
-      page.querySelectorAll('.btn-delete').forEach(btn => {
-        btn.addEventListener('click', () => _deleteSave(btn.dataset.id));
-      });
+    } else {
+      const empty = document.createElement('div');
+      empty.className = 'feature-card';
+      empty.style.cssText = 'text-align:center; padding: 40px;';
+
+      const h = document.createElement('h4');
+      h.style.cssText = 'color:var(--accent-lt); font-size:1.2rem;';
+      h.textContent = 'No Saves Found';
+      empty.appendChild(h);
+
+      const p = document.createElement('p');
+      p.style.marginBottom = '20px';
+      p.textContent = "You haven't saved any games in this session.";
+      empty.appendChild(p);
+
+      const play = document.createElement('button');
+      play.className = 'btn btn-gold';
+      play.textContent = 'Play a Game';
+      play.addEventListener('click', () => { location.hash = 'play'; });
+      empty.appendChild(play);
+
+      content.appendChild(empty);
     }
 
     return page;
@@ -1038,19 +1111,40 @@ const App = (() => {
     const el = document.getElementById('saved-games-list');
     if(!el) return;
     const saves = _getSaves();
+    el.replaceChildren();
     if(!saves.length){
-      el.innerHTML = '<div class="save-empty">No saves yet</div>';
+      const empty = document.createElement('div');
+      empty.className = 'save-empty';
+      empty.textContent = 'No saves yet';
+      el.appendChild(empty);
       return;
     }
-    el.innerHTML = saves.map(s=>`
-      <div class="save-item" data-id="${s.id}">
-        <div class="save-mode">${s.modeShort} · ${s.ts}</div>
-        ${s.opening?`<div class="save-opening">${s.opening}</div>`:''}
-        <div class="save-meta">${s.moves.length} moves ${s.accuracy ? `· ${s.accuracy}% acc` : ''}</div>
-      </div>`).join('');
-    el.querySelectorAll('.save-item').forEach(item=>{
+    for(const s of saves){
+      const item = document.createElement('div');
+      item.className = 'save-item';
+      item.dataset.id = String(s.id ?? '');
+
+      const mode = document.createElement('div');
+      mode.className = 'save-mode';
+      mode.textContent = `${s.modeShort || ''} · ${s.ts || ''}`;
+      item.appendChild(mode);
+
+      if(s.opening){
+        const opening = document.createElement('div');
+        opening.className = 'save-opening';
+        opening.textContent = s.opening;
+        item.appendChild(opening);
+      }
+
+      const moveCount = Array.isArray(s.moves) ? s.moves.length : 0;
+      const meta = document.createElement('div');
+      meta.className = 'save-meta';
+      meta.textContent = `${moveCount} moves${s.accuracy ? ` · ${s.accuracy}% acc` : ''}`;
+      item.appendChild(meta);
+
       item.addEventListener('click',()=>_restoreGame(item.dataset.id));
-    });
+      el.appendChild(item);
+    }
   }
 
   async function _restoreGame(id){
