@@ -601,8 +601,28 @@ const Board = (() => {
 
   async function doRedo(){
     if(!_undoEnabled) return;
+
+    // Increment sequence token to invalidate any in-flight engine callbacks
+    // (same pattern as doUndo — prevents ghost engine moves after redo).
+    _moveSeq++;
+    const mySeq = _moveSeq;
+
     try{
-      const data=await POST('/redo',{});
+      const mode = window.App?.getMode();
+      const vsEngine = mode && mode !== 'hvh';
+
+      // Redo the player move first
+      let data = await POST('/redo',{});
+      if(mySeq !== _moveSeq) return; // stale — another undo/redo/reset fired
+
+      // In engine modes, also redo the engine's historical move if available.
+      // We use data.can_redo from the server as the authoritative signal that
+      // a second half-move exists on the redo stack — no guessing needed.
+      if(vsEngine && data.can_redo){
+        data = await POST('/redo',{});
+        if(mySeq !== _moveSeq) return;
+      }
+
       _rebuildCap(data.board);
       selected=null; legal=[]; lastMove=null;
       _clearHint(); _prevBestFrom=null; _prevBestTo=null;
@@ -611,7 +631,7 @@ const Board = (() => {
       _updateTurnStatus();
       _refreshEval();
       _bmRefresh();
-      // refresh opening card after redo; _updateOpening(undefined) will also reset
+      // refresh opening card after redo; _updateOpening(undefined) also resets
       // _leftBook if server says we're back in book (allows toast to fire again later).
       await _updateOpening();
     }catch(e){ setStatus('dot-x','Redo error: '+e.message); }
