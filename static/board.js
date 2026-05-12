@@ -145,6 +145,13 @@ const Board = (() => {
   let _engineDepth = 3;
   let _undoEnabled = true;
 
+  /* ── Navigation State ──
+   * _viewPly is the current index in halfMoves we are viewing.
+   * If _viewPly === halfMoves.length, we are at the live "latest" position.
+   */
+  let _viewPly = 0;
+  function getMoveCount(){ return halfMoves.length; }
+
   /* ── Best Move Display + Board Highlight ──
    *  'none'             — nothing shown, no highlights
    *  'current_position' — show best move for current board; highlight squares
@@ -267,8 +274,17 @@ const Board = (() => {
     // Update eval bars using module-scoped _applyBars (keeps smoothing state)
     _applyBars(data);
     _updateUndoRedo(data.can_undo,data.can_redo);
+    
+    // If we receive a full move_history, rebuild our local list.
+    if(data.move_history) _rebuildMoveList(data.move_history);
+
+    // Sync _viewPly to latest if it was already at the latest or if this is a new game/reset
+    const latest = halfMoves.length;
+    if(_viewPly >= latest - 1 || data.reset) _viewPly = latest;
+
     render();
     _updateDots();
+    _renderMoveList(); // Ensure highlighted move is correct
   }
 
 
@@ -483,6 +499,8 @@ const Board = (() => {
     if(!$histSf) return;
     $histSf.replaceChildren();
 
+    let activeEl = null;
+
     for(let i=0;i<halfMoves.length;i+=2){
       const row=document.createElement('div');
       row.className='h-row';
@@ -491,14 +509,17 @@ const Board = (() => {
       const bMove = halfMoves[i+1]  || '';
       const wRev  = reviewData[i]   || null;
       const bRev  = reviewData[i+1] || null;
-      const cur   = halfMoves.length - 1;
 
-      const renderHalf = (uci, rev, isCur) => {
+      const renderHalf = (uci, rev, plyIdx) => {
         if(!uci) return null;
 
+        const isViewed = (_viewPly === plyIdx + 1);
         const cls  = rev ? _classifyFromReview(rev) : null;
         const wrap = document.createElement('span');
-        wrap.className = `h-move${isCur ? ' cur' : ''}`;
+        wrap.className = `h-move${isViewed ? ' cur' : ''}`;
+        if(isViewed) activeEl = wrap;
+
+        wrap.addEventListener('click', () => _gotoPly(plyIdx + 1));
 
         const moveEl = document.createElement('span');
         moveEl.className = 'move-uci';
@@ -513,7 +534,6 @@ const Board = (() => {
           wrap.appendChild(symEl);
         }
 
-        // Show best alternative if played differs from best
         if(rev && rev.best && rev.best !== uci){
           const bestEl = document.createElement('span');
           bestEl.className = 'move-best';
@@ -522,7 +542,6 @@ const Board = (() => {
           wrap.appendChild(bestEl);
         }
 
-        // Show eval change as small subscript
         if(rev && (rev.eval_before != null || rev.eval_after != null)){
           const eb = _fmtEval(rev.eval_before);
           const ea = _fmtEval(rev.eval_after);
@@ -538,16 +557,23 @@ const Board = (() => {
       const num = document.createElement('span');
       num.className = 'h-num';
       num.textContent = `${Math.floor(i/2)+1}.`;
+      // Clicking move number jumps to position BEFORE the white move (i)
+      num.addEventListener('click', () => _gotoPly(i));
       row.appendChild(num);
 
-      const whiteHalf = renderHalf(wMove, wRev, cur===i);
-      const blackHalf = renderHalf(bMove, bRev, bMove && cur===i+1);
+      const whiteHalf = renderHalf(wMove, wRev, i);
+      const blackHalf = renderHalf(bMove, bRev, i + 1);
       if(whiteHalf) row.appendChild(whiteHalf);
       if(blackHalf) row.appendChild(blackHalf);
 
       $histSf.appendChild(row);
     }
-    $histSf.scrollTop = $histSf.scrollHeight;
+
+    if(activeEl){
+      activeEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    } else {
+      $histSf.scrollTop = $histSf.scrollHeight;
+    }
   }
 
   /* ════════════════════════════════════════════
@@ -573,31 +599,56 @@ const Board = (() => {
 
   async function doUndo(){
     if(!_undoEnabled) return;
+    if(_isSubmitting) return;
 
-    // Cancel any pending engine move by incrementing the sequence token.
-    // Any in-flight _doEngineMove callback will see the mismatch and bail.
+    // If we are navigating an earlier position, Undo means "truncate here and go back one"
+    const isHistorical = _viewPly < halfMoves.length;
+
     _moveSeq++;
     const mySeq = _moveSeq;
-
     if(gameOver) gameOver=false;
 
     try{
-      const mode = window.App?.getMode();
-      const vsEngine = mode && mode !== 'hvh';
-
-      // Undo the engine's last move first (if applicable)
-      if(vsEngine){
-        // Only undo the engine half when there IS an engine half to undo.
-        // If the player just started the game (0 or 1 half-move) skip the
-        // extra undo so we don't under-shoot the start position.
-        if(halfMoves.length >= 2){
+      let data;
+      if(isHistorical){
+        // Truncate at current _viewPly, effectively undoing the move at _viewPly
+        data = await POST('/undo', { index: _viewPly });
+      } else {
+        const mode = window.App?.getMode();
+        const vsEngine = mode && mode !== 'hvh';
+        if(vsEngine && halfMoves.length >= 2){
           await POST('/undo',{});
-          // Bail if a newer undo/reset happened while we awaited
           if(mySeq !== _moveSeq) return;
         }
+        data = await POST('/undo',{});
       }
+      if(mySeq !== _moveSeq) return;
+      applyState(data);
+    } catch(e) {
+      setStatus('error', 'Undo failed');
+    }
+  }
 
-      // Undo the human move
+  async function doRedo(){
+    if(!_undoEnabled) return;
+    if(_isSubmitting) return;
+
+    // Redo always operates on the "future" stack or history forward.
+    if(_viewPly < halfMoves.length){
+      _gotoPly(_viewPly + 1);
+      return;
+    }
+
+    _moveSeq++;
+    const mySeq = _moveSeq;
+    try{
+      const data = await POST('/redo',{});
+      if(mySeq !== _moveSeq) return;
+      applyState(data);
+    } catch(e) {
+      setStatus('error', 'Redo failed');
+    }
+  }
       const data = await POST('/undo',{});
       if(mySeq !== _moveSeq) return;  // stale — discard
 
@@ -953,6 +1004,22 @@ const Board = (() => {
   async function _commitMove(from,to,promotion){
     if(_isSubmitting) return;  // guard against rapid double-click
     _isSubmitting=true;
+
+    // ── Branching/Truncation ──
+    // If we are viewing an earlier ply, any new move must truncate the future.
+    if(_viewPly < halfMoves.length){
+      try {
+        const trunc = await POST('/history/truncate', { index: _viewPly });
+        // We don't applyState(trunc) fully yet because we are about to make a NEW move.
+        // But we MUST update our local halfMoves/reviewData so _pushMove works correctly.
+        _rebuildMoveList(trunc.move_history);
+      } catch(e) {
+        console.error("Truncation failed", e);
+        _isSubmitting = false;
+        return;
+      }
+    }
+
     selected=null; legal=[];
     const{row:tr,col:tc}=n2i(to);
     const cap=board[tr][tc];
@@ -1525,6 +1592,9 @@ const Board = (() => {
     setBestMoveMode,
     resign,
     getMoves,
+    getMoveCount,
     applyRestoredState,
+    navPrev,
+    navNext,
   };
 })();

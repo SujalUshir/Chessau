@@ -352,6 +352,16 @@ _move_history = []
 # ── Fullmove counter (increments after Black's move, resets on new game) ──────
 _fullmove_counter = 1
 
+# ── Session Meta Data (for snapshots) ──────────────────────────────────────────
+_current_mode      = "hvh"
+_selected_bot_id   = "novice"
+_engine_depth      = 3
+_bm_mode           = "none"
+_orientation       = "white"
+_move_times        = []
+_clock_state       = None
+_analysis_cache    = {}
+
 _init_stockfish()
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -369,15 +379,24 @@ def _snap():
         "white_rook_h_moved": engine.white_rook_h_moved,
         "black_rook_a_moved": engine.black_rook_a_moved,
         "black_rook_h_moved": engine.black_rook_h_moved,
-        # position_history is included so undo/redo correctly reverts repetition counts.
         "position_history":   dict(engine.position_history),
-        # Opening tracker and fullmove counter — needed for correct FEN and opening card after undo/redo.
         "game_uci_moves":     list(_game_uci_moves),
         "fullmove_counter":   _fullmove_counter,
+        # Metadata
+        "current_mode":       _current_mode,
+        "selected_bot_id":    _selected_bot_id,
+        "engine_depth":       _engine_depth,
+        "bm_mode":            _bm_mode,
+        "orientation":        _orientation,
+        "move_times":         list(_move_times),
+        "clock_state":        copy.deepcopy(_clock_state),
+        "analysis_cache":     copy.deepcopy(_analysis_cache),
     }
 
 def _restore(s):
-    global _fullmove_counter
+    global _fullmove_counter, _current_mode, _selected_bot_id, _engine_depth
+    global _bm_mode, _orientation, _move_times, _clock_state, _analysis_cache
+
     engine.board[:]            = s["board"]
     engine.current_turn        = s["current_turn"]
     engine.en_passant_target   = s["en_passant_target"]
@@ -388,17 +407,24 @@ def _restore(s):
     engine.white_rook_h_moved  = s["white_rook_h_moved"]
     engine.black_rook_a_moved  = s["black_rook_a_moved"]
     engine.black_rook_h_moved  = s["black_rook_h_moved"]
-    # Restore repetition history so undo/redo reverts draw-detection state.
     if "position_history" in s:
         engine.position_history.clear()
         engine.position_history.update(s["position_history"])
-    # Restore opening tracker so the opening card is correct after undo/redo.
     if "game_uci_moves" in s:
         _game_uci_moves.clear()
         _game_uci_moves.extend(s["game_uci_moves"])
-    # Restore fullmove counter so FEN export is accurate after undo/redo.
     if "fullmove_counter" in s:
         _fullmove_counter = s["fullmove_counter"]
+
+    # Metadata restoration
+    _current_mode    = s.get("current_mode", "hvh")
+    _selected_bot_id = s.get("selected_bot_id", "novice")
+    _engine_depth    = s.get("engine_depth", 3)
+    _bm_mode         = s.get("bm_mode", "none")
+    _orientation     = s.get("orientation", "white")
+    _move_times      = s.get("move_times", [])
+    _clock_state     = s.get("clock_state", None)
+    _analysis_cache  = s.get("analysis_cache", {})
 
 
 def _snap_full():
@@ -1579,11 +1605,27 @@ def _history_for_client():
 @app.post("/undo")
 @limiter.limit(LIMIT_MOVE)
 def undo():
+    global _fullmove_counter
+    # Optional index in payload for "Undo from historical position"
+    d = _json_object_payload()
+    idx = d.get("index") # ply index
+
+    # If an index is provided and it's not the latest, truncate first.
+    if idx is not None:
+        target = int(idx)
+        if target < len(_move_history):
+            # Truncate to the move before the target (undoing the target move)
+            _truncate_to(max(0, target - 1))
+            _redo_stack.clear()
+            payload = _payload(with_sf=False)
+            payload["move_history"] = _history_for_client()
+            return jsonify(payload)
+
     if not _undo_stack:
         return jsonify({"error": "nothing to undo"}), 400
     _redo_stack.append(_snap_full())
     _restore_full(_undo_stack.pop())
-    _invalidate_sf_cache()          # board changed — discard cached analysis
+    _invalidate_sf_cache()
     payload = _payload(with_sf=False)
     payload["move_history"] = _history_for_client()
     return jsonify(payload)
@@ -1591,14 +1633,90 @@ def undo():
 @app.post("/redo")
 @limiter.limit(LIMIT_MOVE)
 def redo():
+    # If a specific redo index is intended, we might need a separate logic,
+    # but for now, standard redo always pops from the redo stack.
     if not _redo_stack:
         return jsonify({"error": "nothing to redo"}), 400
     _push_undo(_snap_full())
     _restore_full(_redo_stack.pop())
-    _invalidate_sf_cache()          # board changed — discard cached analysis
+    _invalidate_sf_cache()
     payload = _payload(with_sf=False)
     payload["move_history"] = _history_for_client()
     return jsonify(payload)
+
+@app.get("/history/goto")
+def history_goto():
+    """Return the board state at a specific ply index without modifying the game."""
+    try:
+        idx = int(request.args.get("index", 0))
+    except:
+        return jsonify({"error": "invalid index"}), 400
+
+    if idx < 0:
+        return jsonify({"error": "out of range"}), 400
+
+    # Ply 0 is start. _move_history[0].snap is ply 0.
+    if idx == 0:
+        # We need the start position. We can't easily get it from _move_history
+        # if it's been cleared. But usually _move_history[0].snap is it.
+        # If history is empty, it's just current board.
+        if not _move_history:
+            return jsonify(_payload(with_sf=False))
+        return jsonify({**_payload(with_sf=False, custom_snap=_move_history[0]["snap"]), "move_history": _history_for_client()})
+
+    if idx >= len(_move_history):
+        # Return current state
+        return jsonify({**_payload(with_sf=False), "move_history": _history_for_client()})
+
+    # Return snapshot from history
+    # idx 1 = after white move 1. That's the snap in _move_history[1] OR
+    # if we want the state AFTER move idx, we look at _move_history[idx].snap if it existed?
+    # Wait:
+    # _move_history[0] = { "played": "e2e4", "snap": <start_pos> }
+    # State AFTER e2e4 is the snap in _move_history[1].
+    # If idx is the last move, state after it is the current engine.board.
+    
+    if idx == len(_move_history):
+        return jsonify({**_payload(with_sf=False), "move_history": _history_for_client()})
+    
+    # We want state after move history[idx-1]
+    # Actually, _move_history[idx]["snap"] is the state BEFORE move idx.
+    # So it is the state AFTER move idx-1.
+    return jsonify({**_payload(with_sf=False, custom_snap=_move_history[idx]["snap"]), "move_history": _history_for_client()})
+
+@app.post("/history/truncate")
+def history_truncate():
+    """Permanently truncate history and board to ply X."""
+    d = _json_object_payload()
+    idx = d.get("index")
+    if idx is None:
+        return jsonify({"error": "missing index"}), 400
+    try:
+        idx = int(idx)
+        _truncate_to(idx)
+        _redo_stack.clear()
+        return jsonify({**_payload(with_sf=False), "move_history": _history_for_client()})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+def _truncate_to(idx):
+    """Internal helper to truncate everything to move index 'idx' (ply)."""
+    global _fullmove_counter
+    if idx < 0: idx = 0
+    
+    if idx >= len(_move_history):
+        return # nothing to truncate
+    
+    # Target state is _move_history[idx]["snap"]
+    target_snap = copy.deepcopy(_move_history[idx]["snap"])
+    _restore(target_snap)
+    
+    # Truncate history
+    del _move_history[idx:]
+    del _game_uci_moves[idx:]
+    
+    # Recalculate fullmove counter if needed (usually _restore does it)
+    _invalidate_sf_cache()
 
 @app.post("/reset")
 @limiter.limit(LIMIT_MOVE)
@@ -1607,7 +1725,18 @@ def reset():
     _undo_stack.clear()
     _redo_stack.clear()
     _move_history.clear()
-    _invalidate_sf_cache()          # fresh game — discard any cached analysis
+    _invalidate_sf_cache()
+    # Reset metadata
+    global _current_mode, _selected_bot_id, _engine_depth, _bm_mode
+    global _orientation, _move_times, _clock_state, _analysis_cache
+    _current_mode    = "hvh"
+    _selected_bot_id = "novice"
+    _engine_depth    = 3
+    _bm_mode         = "none"
+    _orientation     = "white"
+    _move_times      = []
+    _clock_state     = None
+    _analysis_cache  = {}
     return jsonify(_payload(with_sf=False))
 
 
@@ -1686,7 +1815,7 @@ def load_position():
             log.warning("[load_position] move %s failed: %s", uci, ex)
             rollback_restore()
             return jsonify({"error": "invalid replay move"}), 400
-    return jsonify(_payload(with_sf=False))
+    return jsonify({**_payload(with_sf=False), "move_history": _history_for_client()})
 
 
 # ── New endpoints: eval_history, accuracy, save_game ──────────────────────────

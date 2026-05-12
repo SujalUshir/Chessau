@@ -481,10 +481,12 @@ const App = (() => {
             <div class="ei-row"><span class="ei-lbl">Bot</span><span class="ei-val" id="ei-bot" style="font-size:.6rem;color:var(--text-muted)">${oppName}</span></div>
           </div>
 
-          <!-- Undo/Redo -->
+          <!-- Navigation and Undo/Redo -->
           <div class="undo-redo">
+            <button class="btn btn-ghost" id="btn-prev" title="Previous Move">←</button>
             <button class="btn btn-ghost" id="btn-undo" disabled>↩ Undo</button>
             <button class="btn btn-ghost" id="btn-redo" disabled>↪ Redo</button>
+            <button class="btn btn-ghost" id="btn-next" title="Next Move">→</button>
           </div>
 
           <!-- Best Move Panel (hidden when bmMode=none) -->
@@ -576,9 +578,9 @@ const App = (() => {
         <div class="setting-row">
           <div>
             <div class="setting-label">Display Mode</div>
-            <div class="setting-sub">Highlights squares &amp; shows move text</div>
+            <div class="setting-sub">${Board.getMoveCount() > 0 ? '<span style="color:var(--accent-lt)">Locked after game starts</span>' : 'Highlights squares &amp; shows move text'}</div>
           </div>
-          <select id="bm-mode-sel" class="settings-select">
+          <select id="bm-mode-sel" class="settings-select" ${Board.getMoveCount() > 0 ? 'disabled' : ''}>
             ${bmOpts}
           </select>
         </div>
@@ -945,6 +947,8 @@ const App = (() => {
           document.getElementById('btn-settings').addEventListener('click', showSettings);
           document.getElementById('btn-home')    .addEventListener('click', ()=>navigate('home'));
           document.getElementById('btn-resign')  .addEventListener('click', ()=>Board.resign(currentMode));
+          document.getElementById('btn-prev')    .addEventListener('click', ()=>Board.navPrev());
+          document.getElementById('btn-next')    .addEventListener('click', ()=>Board.navNext());
           document.getElementById('btn-quicksave')?.addEventListener('click', _quickSave);
           document.getElementById('btn-clearsaves')?.addEventListener('click', _clearSaves);
           _renderSavedGames();
