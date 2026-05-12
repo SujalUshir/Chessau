@@ -482,12 +482,10 @@ const App = (() => {
             <div class="ei-row"><span class="ei-lbl">Bot</span><span class="ei-val" id="ei-bot" style="font-size:.6rem;color:var(--text-muted)">${oppName}</span></div>
           </div>
 
-          <!-- Navigation and Undo/Redo -->
+          <!-- Undo/Redo -->
           <div class="undo-redo">
-            <button class="btn btn-ghost" id="btn-prev" title="Previous Move">←</button>
-            <button class="btn btn-ghost" id="btn-undo" disabled>↩ Undo</button>
-            <button class="btn btn-ghost" id="btn-redo" disabled>↪ Redo</button>
-            <button class="btn btn-ghost" id="btn-next" title="Next Move">→</button>
+            <button class="btn btn-ghost" id="btn-undo" disabled style="width:100%">↩ Undo</button>
+            <button class="btn btn-ghost" id="btn-redo" disabled style="width:100%">↪ Redo</button>
           </div>
 
           <!-- Best Move Panel (hidden when bmMode=none) -->
@@ -962,8 +960,6 @@ const App = (() => {
           document.getElementById('btn-settings').addEventListener('click', showSettings);
           document.getElementById('btn-home')    .addEventListener('click', ()=>navigate('home'));
           document.getElementById('btn-resign')  .addEventListener('click', ()=>Board.resign(currentMode));
-          document.getElementById('btn-prev')    .addEventListener('click', ()=>Board.navPrev());
-          document.getElementById('btn-next')    .addEventListener('click', ()=>Board.navNext());
           document.getElementById('btn-quicksave')?.addEventListener('click', _quickSave);
           document.getElementById('btn-clearsaves')?.addEventListener('click', _clearSaves);
           _renderSavedGames();
@@ -1200,8 +1196,6 @@ const App = (() => {
       
       // Transition to game view
       navigate('game');
-      
-      _showToast('🔁 Game restored');
     }catch(e){ _showToast('Restore failed: '+e.message); }
   }
 
