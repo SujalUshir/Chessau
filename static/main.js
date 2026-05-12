@@ -12,6 +12,7 @@ const App = (() => {
   let currentMode = null;
   let playerColor = 'white';
   let selectedBot = null;
+  let _pendingRestore = null;
 
   // —— XSS-safe HTML escape helper ——
   // Used whenever user-influenced strings (mode names, opening text,
@@ -908,8 +909,9 @@ const App = (() => {
         const page=renderGame(_resolvedColor);
         app.appendChild(page);
 
-        requestAnimationFrame(()=>{
-          Board.init({
+        requestAnimationFrame(async ()=>{
+          const skipReset = !!_pendingRestore;
+          await Board.init({
             container:   document.getElementById('board-container'),
             statusEl:    document.getElementById('status-bar'),
             evalEngFill: document.getElementById('eval-eng-fill'),
@@ -930,7 +932,13 @@ const App = (() => {
             openingEl:   document.getElementById('opening-content'),
             playerColor: _resolvedColor,
             engineDepth: selectedBot?.depth || 3,
+            skipReset
           });
+          
+          if(_pendingRestore){
+            Board.applyRestoredState(_pendingRestore.data, _pendingRestore.moves);
+            _pendingRestore = null;
+          }
 
           /* apply settings */
           Board.setEvalBars(cfg.evalBars);
@@ -1092,6 +1100,8 @@ const App = (() => {
       id: Date.now().toString(),
       ts,
       mode: currentMode,
+      botId: selectedBot?.id || null,
+      playerColor: _resolvedColor,
       modeName: MODE_LABELS[currentMode]||currentMode,
       modeShort: MODE_SHORT[currentMode]||currentMode,
       moves,
@@ -1168,8 +1178,18 @@ const App = (() => {
       });
       if(!res.ok) throw new Error(await res.text());
       const data = await res.json();
-      // Update board state directly
-      Board.applyRestoredState(data, save.moves);
+      
+      // Restore App state
+      currentMode = save.mode || 'hvh';
+      selectedBot = BOTS.find(b => b.id === save.botId) || null;
+      _resolvedColor = save.playerColor || 'white';
+      
+      // Setup pending restore data for Board.init
+      _pendingRestore = { data, moves: save.moves };
+      
+      // Transition to game view
+      navigate('game');
+      
       _showToast('🔁 Game restored');
     }catch(e){ _showToast('Restore failed: '+e.message); }
   }

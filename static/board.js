@@ -273,9 +273,10 @@ const Board = (() => {
     // If we receive a full move_history, rebuild our local list.
     if(data.move_history) _rebuildMoveList(data.move_history);
 
-    // Sync _viewPly to latest if it was already at the latest or if this is a new game/reset
-    const latest = halfMoves.length;
-    if(_viewPly >= latest - 1 || data.reset) _viewPly = latest;
+    // If it's a reset or new game, snap _viewPly to the end.
+    // Pure navigation (via _gotoPly) should NOT be snapped here.
+    if(data.reset) _viewPly = halfMoves.length;
+    else if(_viewPly > halfMoves.length) _viewPly = halfMoves.length;
 
     render();
     _updateDots();
@@ -476,8 +477,10 @@ const Board = (() => {
      reviewData[i] comes from server response.review
   ════════════════════════════════════════════ */
   function _pushMove(uci, review){
+    const atEnd = (_viewPly === halfMoves.length);
     halfMoves.push(uci);
     reviewData.push(review || null);
+    if(atEnd) _viewPly = halfMoves.length;
     _renderMoveList();
     // NOTE: do NOT call _updateOpening() here.
     // For engine moves it is called from _doEngineMove with the correct in_book flag.
@@ -1478,9 +1481,11 @@ const Board = (() => {
     window.addEventListener('resize',_onResize);
 
     setStatus('dot-t','Loading…');
-    // Always reset backend state on init so a fresh game begins cleanly.
-    // This handles: Home→Game navigation, mode changes, and page reloads.
-    try{ await POST('/reset',{}); }catch(e){ console.warn('[Board.init] reset failed:',e); }
+    if(!opts.skipReset){
+      // Always reset backend state on init so a fresh game begins cleanly.
+      // This handles: Home→Game navigation, mode changes, and page reloads.
+      try{ await POST('/reset',{}); }catch(e){ console.warn('[Board.init] reset failed:',e); }
+    }
     const data=await GET('/state');
     applyState(data);
     _updateTurnStatus();
@@ -1546,6 +1551,18 @@ const Board = (() => {
     _updateOpening(); // floating promise is fine here
     if($histSf)  $histSf.replaceChildren();
     _renderMoveList();
+
+    // AUTO-TRIGGER ENGINE AFTER RESTORE
+    // If we restored into an engine mode and it's the engine's turn, trigger it.
+    const mode = window.App?.getMode();
+    if(mode && mode !== 'hvh' && !gameOver){
+      const isBlack = (playerColor === 'black');
+      const isEngineTurn = (isBlack && turn === 'white') || (!isBlack && turn === 'black');
+      if(isEngineTurn){
+        console.log("[Board] Engine turn detected after restore, triggering move...");
+        _doEngineMove(mode);
+      }
+    }
   }
 
   function resign(mode){
