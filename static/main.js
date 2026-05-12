@@ -310,7 +310,11 @@ const App = (() => {
             ${fromGame ? '↺ Apply & Reset' : 'Play →'}
           </button>
         </div>
-      </div>`;
+      </div>
+      <div style="margin:18px auto 0;max-width:560px;padding:10px 16px;border-radius:8px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.09);font-size:.72rem;color:var(--text-muted);text-align:center;line-height:1.6;">
+        ⚠️ <strong style="color:var(--accent-lt)">Beta — Single Session</strong> &nbsp;·&nbsp;
+        This app runs one shared game server. Opening multiple tabs simultaneously will cause state conflicts. Each tab resets the board on load.
+      </div>\`;
 
     let chosen=selectedBot;
     ov.querySelectorAll('.bot-card').forEach(card=>{

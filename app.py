@@ -269,13 +269,20 @@ STOCKFISH_ERR = ""
 _sf_cache_key    = None   # tuple: (fen_str, depth)
 _sf_cache_result = None   # dict: {best_move, eval_cp, eval_pawns, depth}
 
+# ── Opening name cache (keyed by current FEN string) ─────────────────────────
+# Avoids re-opening the Polyglot book file on every /opening request.
+_opening_cache_fen    = None   # str: FEN when result was cached
+_opening_cache_result = None   # dict: {eco, name, in_book}
+
 
 def _invalidate_sf_cache():
-    """Clear the position cache. Call whenever the board position changes
-    externally (reset, undo, redo) so stale results are never returned."""
-    global _sf_cache_key, _sf_cache_result
-    _sf_cache_key    = None
-    _sf_cache_result = None
+    """Clear the position and opening caches. Call whenever the board position
+    changes externally (reset, undo, redo) so stale results are never returned."""
+    global _sf_cache_key, _sf_cache_result, _opening_cache_fen, _opening_cache_result
+    _sf_cache_key         = None
+    _sf_cache_result      = None
+    _opening_cache_fen    = None
+    _opening_cache_result = None
 
 
 def _new_sf():
@@ -364,9 +371,13 @@ def _snap():
         "black_rook_h_moved": engine.black_rook_h_moved,
         # position_history is included so undo/redo correctly reverts repetition counts.
         "position_history":   dict(engine.position_history),
+        # Opening tracker and fullmove counter — needed for correct FEN and opening card after undo/redo.
+        "game_uci_moves":     list(_game_uci_moves),
+        "fullmove_counter":   _fullmove_counter,
     }
 
 def _restore(s):
+    global _fullmove_counter
     engine.board[:]            = s["board"]
     engine.current_turn        = s["current_turn"]
     engine.en_passant_target   = s["en_passant_target"]
@@ -381,6 +392,13 @@ def _restore(s):
     if "position_history" in s:
         engine.position_history.clear()
         engine.position_history.update(s["position_history"])
+    # Restore opening tracker so the opening card is correct after undo/redo.
+    if "game_uci_moves" in s:
+        _game_uci_moves.clear()
+        _game_uci_moves.extend(s["game_uci_moves"])
+    # Restore fullmove counter so FEN export is accurate after undo/redo.
+    if "fullmove_counter" in s:
+        _fullmove_counter = s["fullmove_counter"]
 
 
 def _snap_full():
@@ -914,7 +932,7 @@ def _best_move_from_snap(s):
     finally:
         _restore(saved)
 
-def _build_move_review_entry(pre_snap, played_uci, move_number):
+def _build_move_review_entry(pre_snap, played_uci, move_number, is_book_move=False):
     """
     Compute all review fields for one move.
 
@@ -989,7 +1007,11 @@ def _build_move_review_entry(pre_snap, played_uci, move_number):
             multipv_evals=multipv_evals
         )
 
-        if classification not in ("Brilliant", "Best") and _is_book_move(move_number, eval_before):
+        # Only mark as "Book" when the move was actually sourced from the Polyglot
+        # opening book (is_book_move=True passed by the engine/SF route).  The old
+        # heuristic (move_number<=10 AND eval<=30) incorrectly labelled early
+        # inaccuracies as Book moves.
+        if is_book_move and classification not in ("Brilliant", "Best"):
             classification = "Book"
 
         # ── Debug output ──────────────────────────────────────────────────────
@@ -1319,19 +1341,28 @@ def human_move():
 def opening_name():
     """Return the current opening name, ECO code, and whether the current
     position still has book moves available (used by all game modes for
-    consistent opening-card and badge rendering)."""
+    consistent opening-card and badge rendering).
+    Result is cached by FEN; cache is invalidated on every board mutation."""
+    global _opening_cache_fen, _opening_cache_result
+    current_fen = _fen()
+    if _opening_cache_fen == current_fen and _opening_cache_result is not None:
+        return jsonify(_opening_cache_result)
+
     eco, name = _match_opening(_game_uci_moves)
     # Lightweight probe: does the current position have any book entries?
-    # Returns True even in HvH mode so all modes get consistent badge behaviour.
     in_book = False
     if BOOK_OK:
         try:
             import chess
             with chess.polyglot.open_reader(BOOK_PATH) as reader:
-                in_book = bool(list(reader.find_all(chess.Board(_fen()))))
+                in_book = bool(list(reader.find_all(chess.Board(current_fen))))
         except Exception:
             in_book = False
-    return jsonify({"eco": eco, "name": name, "in_book": in_book})
+
+    result = {"eco": eco, "name": name, "in_book": in_book}
+    _opening_cache_fen    = current_fen
+    _opening_cache_result = result
+    return jsonify(result)
 
 
 @app.post("/move/engine")
@@ -1363,7 +1394,7 @@ def engine_move():
                 played_uci  = fr + to
                 pre_snap    = _snap()
                 move_number = len(_move_history) + 1
-                review = _build_move_review_entry(pre_snap, played_uci, move_number)
+                review = _build_move_review_entry(pre_snap, played_uci, move_number, is_book_move=True)
                 _push_undo(_snap_full())
                 _redo_stack.clear()
                 engine.move_piece_notation(engine.board, fr, to)
@@ -1485,7 +1516,7 @@ def sf_move():
         pre_snap    = _snap()
         move_number = len(_move_history) + 1
 
-        review = _build_move_review_entry(pre_snap, played_uci, move_number)
+        review = _build_move_review_entry(pre_snap, played_uci, move_number, is_book_move=is_book_move)
 
         _push_undo(_snap_full())
         _redo_stack.clear()
@@ -1642,9 +1673,12 @@ def load_position():
             if promo and not _is_promotion_move(piece, to):
                 rollback_restore()
                 return jsonify({"error": "invalid replay promotion"}), 400
+            # Capture moving color BEFORE move_piece_notation flips current_turn.
+            # The old code used engine.current_turn AFTER the flip — inversion bug.
+            moving_color = engine.current_turn
             engine.move_piece_notation(engine.board, fr, to)
             if promo:
-                engine.board[r2][c2] = promo.upper() if engine.current_turn == 'black' else promo.lower()
+                engine.board[r2][c2] = promo.upper() if moving_color == 'white' else promo.lower()
             _game_uci_moves.append(fr + to)
             if engine.current_turn == "white":
                 _fullmove_counter += 1

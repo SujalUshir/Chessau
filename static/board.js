@@ -168,6 +168,22 @@ const Board = (() => {
   let dragActive=false, dragFrom=null, dragEl=null, _dox=0, _doy=0;
   let _justSelected=false; // prevent mobile tap from deselecting immediately
 
+  /* ── Submit guard — prevents double-move from rapid clicks/taps ──
+     Set true before POST('/move/human'), cleared in finally block.
+     Also checked in onDragEnd to block concurrent drag commits. */
+  let _isSubmitting = false;
+
+  /* ── XSS-safe escape helper for dynamic server strings ── */
+  function _esc(s){
+    const d=document.createElement('div');
+    d.textContent=String(s??'');
+    return d.innerHTML;
+  }
+
+  /* ── Resize debounce for eval bar orientation refresh ── */
+  let _resizeTimer=null;
+  function _onResize(){ clearTimeout(_resizeTimer); _resizeTimer=setTimeout(_refreshEval,150); }
+
   /* ── Move sequence token — incremented before every undo/reset.
      Any async engine callback captures its seq value; if seq has
      changed by the time the callback fires, the response is stale
@@ -864,6 +880,7 @@ const Board = (() => {
     if(toNot===from){ render(); return; }
     
     if(legal.includes(toNot)){
+      if(_isSubmitting){ render(); return; }  // guard concurrent drag+click
       const piece=board[selected.row][selected.col];
       const{row:tr}=n2i(toNot);
       if((piece==='P'&&tr===0)||(piece==='p'&&tr===7)){
@@ -934,6 +951,8 @@ const Board = (() => {
      COMMIT HUMAN MOVE
   ════════════════════════════════════════════ */
   async function _commitMove(from,to,promotion){
+    if(_isSubmitting) return;  // guard against rapid double-click
+    _isSubmitting=true;
     selected=null; legal=[];
     const{row:tr,col:tc}=n2i(to);
     const cap=board[tr][tc];
@@ -985,6 +1004,8 @@ const Board = (() => {
     }catch(e){
       setStatus('dot-x','Error: '+e.message);
       const data=await GET('/state'); applyState(data);
+    }finally{
+      _isSubmitting=false;  // always release the guard
     }
   }
 
@@ -1181,8 +1202,12 @@ const Board = (() => {
   }
   function _showOver(d){
     let msg;
-    if(d.status==='resign')               msg=`🏳 ${d.resigned.charAt(0).toUpperCase()+d.resigned.slice(1)} resigned · ${d.winner} wins`;
-    else if(d.status==='checkmate')       msg=`♛ Checkmate! ${d.winner} wins!`;
+    // _esc() prevents XSS if server ever returns unexpected values in winner/resigned
+    const eW=_esc(d.winner||''); const eR=_esc(d.resigned||'');
+    const capW=eW?eW.charAt(0).toUpperCase()+eW.slice(1):'';
+    const capR=eR?eR.charAt(0).toUpperCase()+eR.slice(1):'';
+    if(d.status==='resign')               msg=`🏳 ${capR} resigned · ${capW} wins`;
+    else if(d.status==='checkmate')       msg=`♛ Checkmate! ${capW} wins!`;
     else if(d.status==='stalemate')       msg='Stalemate — draw.';
     else if(d.status==='draw_material')   msg='Draw — insufficient material.';
     else if(d.status==='draw_repetition') msg='Draw — threefold repetition.';
@@ -1199,12 +1224,15 @@ const Board = (() => {
   function _showEndModal(d){
     document.getElementById('end-game-modal')?.remove();
     let title,subtitle,icon;
+    const eWM=_esc(d.winner||''); const eRM=_esc(d.resigned||'');
+    const capWM=eWM?eWM.charAt(0).toUpperCase()+eWM.slice(1):'';
+    const capRM=eRM?eRM.charAt(0).toUpperCase()+eRM.slice(1):'';
     if(d.status==='resign'){
       icon='🏳'; title='Resigned';
-      subtitle=`${d.resigned.charAt(0).toUpperCase()+d.resigned.slice(1)} resigned · ${d.winner.charAt(0).toUpperCase()+d.winner.slice(1)} wins`;
+      subtitle=`${capRM} resigned · ${capWM} wins`;
     }else if(d.status==='checkmate'){
       icon='♛'; title='Checkmate!';
-      subtitle=`${d.winner.charAt(0).toUpperCase()+d.winner.slice(1)} wins`;
+      subtitle=`${capWM} wins`;
     }else if(d.status==='stalemate'){
       icon='½'; title='Stalemate'; subtitle='The game is a draw';
     }else if(d.status==='draw_material'){
@@ -1295,8 +1323,12 @@ const Board = (() => {
     ov.innerHTML=`<div class="modal"><h4>Promote Pawn</h4><div class="promo-choices">
       ${pieces.map(p=>`<button class="promo-btn" data-p="${p}"><img src="${pUrl(p)}" alt="${p}"/></button>`).join('')}
     </div></div>`;
+    // Escape key cancels promotion and clears the pending state
+    const _onPromoKey=e=>{ if(e.key==='Escape'){ ov.remove(); promoWait=null; document.removeEventListener('keydown',_onPromoKey); } };
+    document.addEventListener('keydown',_onPromoKey);
     ov.querySelectorAll('.promo-btn').forEach(btn=>{
       btn.addEventListener('click',async()=>{
+        document.removeEventListener('keydown',_onPromoKey);
         ov.remove();
         const p=btn.dataset.p;
         const{from:f,to:t}=promoWait; promoWait=null;
@@ -1394,6 +1426,11 @@ const Board = (() => {
 
     _initSounds();
 
+    // Reset submit guard and attach resize listener for eval bar orientation
+    _isSubmitting=false;
+    window.removeEventListener('resize',_onResize);
+    window.addEventListener('resize',_onResize);
+
     setStatus('dot-t','Loading…');
     // Always reset backend state on init so a fresh game begins cleanly.
     // This handles: Home→Game navigation, mode changes, and page reloads.
@@ -1410,6 +1447,7 @@ const Board = (() => {
 
   async function resetGame(){
     _moveSeq++; // invalidate any in-flight engine callbacks
+    _isSubmitting=false; // clear any stuck guard from mid-move reset
     try{ await POST('/reset',{}); }
     catch(e){ setStatus('dot-x','Reset error: '+e.message); return; }
     selected=null; legal=[]; lastMove=null;

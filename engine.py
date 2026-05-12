@@ -982,14 +982,21 @@ def find_best_move(board,depth):
 def iterative_deepening(board,max_depth):
     global principal_variation_move
     best_move=None
+    score=0  # safe default; only updated when a real move is found
 
-    for depth in range(1,max_depth+1):
+    for depth in range(1,max(1,max_depth)+1):
         _logger.debug("Searching depth %d...", depth)
-        move, score = find_best_move(board, depth)
+        move, s = find_best_move(board, depth)
         if move is not None:
             best_move=move
+            score=s
             principal_variation_move=move
             _logger.debug("Best move at depth %d: %s", depth, best_move)
+
+    # Explicitly return None when no legal move found (checkmate/stalemate on
+    # this board copy) so callers can do `if not result:` safely.
+    if best_move is None:
+        return None
     return best_move,score
 
 
