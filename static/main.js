@@ -764,19 +764,12 @@ const App = (() => {
         const actions = document.createElement('div');
         actions.style.cssText = 'display:flex; flex-direction:column; gap:8px;';
 
-        const isGameActive = (Board.getMoveCount() > 0);
         const restoreBtn = document.createElement('button');
         restoreBtn.className = 'btn btn-gold btn-restore';
         restoreBtn.dataset.id = String(s.id ?? '');
         restoreBtn.style.cssText = 'padding:4px 12px; font-size:0.7rem;';
         restoreBtn.textContent = 'Restore';
-        if(isGameActive){
-          restoreBtn.disabled = true;
-          restoreBtn.style.opacity = '0.5';
-          restoreBtn.title = "Finish current game to restore this one";
-        } else {
-          restoreBtn.addEventListener('click', () => _restoreGame(restoreBtn.dataset.id));
-        }
+        restoreBtn.addEventListener('click', () => _restoreGame(restoreBtn.dataset.id));
         actions.appendChild(restoreBtn);
 
         const deleteBtn = document.createElement('button');
