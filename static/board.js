@@ -145,12 +145,7 @@ const Board = (() => {
   let _engineDepth = 3;
   let _undoEnabled = true;
 
-  /* ── Navigation State ──
-   * _viewPly is the current index in halfMoves we are viewing.
-   * If _viewPly === halfMoves.length, we are at the live "latest" position.
-   */
   let _viewPly = 0;
-  function getMoveCount(){ return halfMoves.length; }
 
   /* ── Best Move Display + Board Highlight ──
    *  'none'             — nothing shown, no highlights
@@ -597,6 +592,36 @@ const Board = (() => {
     _renderMoveList();
   }
 
+  async function _gotoPly(index){
+    if(_isSubmitting) return;
+    _isSubmitting = true;
+    _moveSeq++;
+    const mySeq = _moveSeq;
+    try {
+      const data = await GET(`/history/goto?index=${index}`);
+      if(mySeq !== _moveSeq) return;
+
+      _viewPly = index;
+      applyState(data);
+    } catch(e) {
+      console.error("Navigation failed", e);
+    } finally {
+      _isSubmitting = false;
+    }
+  }
+
+  function navPrev(){
+    if(_viewPly > 0) _gotoPly(_viewPly - 1);
+  }
+
+  function navNext(){
+    if(_viewPly < halfMoves.length) _gotoPly(_viewPly + 1);
+  }
+
+  function getMoveCount(){
+    return halfMoves.length;
+  }
+
   async function doUndo(){
     if(!_undoEnabled) return;
     if(_isSubmitting) return;
@@ -612,7 +637,7 @@ const Board = (() => {
       let data;
       if(isHistorical){
         // Truncate at current _viewPly, effectively undoing the move at _viewPly
-        data = await POST('/undo', { index: _viewPly });
+        data = await POST('/history/truncate', { index: _viewPly });
       } else {
         const mode = window.App?.getMode();
         const vsEngine = mode && mode !== 'hvh';
@@ -623,6 +648,10 @@ const Board = (() => {
         data = await POST('/undo',{});
       }
       if(mySeq !== _moveSeq) return;
+
+      _rebuildCap(data.board);
+      lastMove=null; selected=null; legal=[];
+      _clearHint(); _prevBestFrom=null; _prevBestTo=null;
       applyState(data);
     } catch(e) {
       setStatus('error', 'Undo failed');
@@ -644,64 +673,14 @@ const Board = (() => {
     try{
       const data = await POST('/redo',{});
       if(mySeq !== _moveSeq) return;
-      applyState(data);
-    } catch(e) {
-      setStatus('error', 'Redo failed');
-    }
-  }
-      const data = await POST('/undo',{});
-      if(mySeq !== _moveSeq) return;  // stale — discard
-
-      _rebuildCap(data.board);
-      lastMove=null; selected=null; legal=[];
-      _clearHint(); _prevBestFrom=null; _prevBestTo=null;
-      applyState(data);
-      _rebuildMoveList(data.move_history);
-      _updateTurnStatus();
-      _refreshEval();
-      _bmRefresh();
-      // refresh opening card; _updateOpening(undefined) also resets
-      // _leftBook if server says we're back in book.
-      await _updateOpening();
-    }catch(e){ setStatus('dot-x','Undo error: '+e.message); }
-  }
-
-  async function doRedo(){
-    if(!_undoEnabled) return;
-
-    // Increment sequence token to invalidate any in-flight engine callbacks
-    // (same pattern as doUndo — prevents ghost engine moves after redo).
-    _moveSeq++;
-    const mySeq = _moveSeq;
-
-    try{
-      const mode = window.App?.getMode();
-      const vsEngine = mode && mode !== 'hvh';
-
-      // Redo the player move first
-      let data = await POST('/redo',{});
-      if(mySeq !== _moveSeq) return; // stale — another undo/redo/reset fired
-
-      // In engine modes, also redo the engine's historical move if available.
-      // We use data.can_redo from the server as the authoritative signal that
-      // a second half-move exists on the redo stack — no guessing needed.
-      if(vsEngine && data.can_redo){
-        data = await POST('/redo',{});
-        if(mySeq !== _moveSeq) return;
-      }
-
+      
       _rebuildCap(data.board);
       selected=null; legal=[]; lastMove=null;
       _clearHint(); _prevBestFrom=null; _prevBestTo=null;
       applyState(data);
-      _rebuildMoveList(data.move_history);
-      _updateTurnStatus();
-      _refreshEval();
-      _bmRefresh();
-      // refresh opening card after redo; _updateOpening(undefined) also resets
-      // _leftBook if server says we're back in book (allows toast to fire again later).
-      await _updateOpening();
-    }catch(e){ setStatus('dot-x','Redo error: '+e.message); }
+    } catch(e) {
+      setStatus('error', 'Redo failed');
+    }
   }
 
   async function _refreshEval(){
