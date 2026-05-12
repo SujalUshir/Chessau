@@ -766,12 +766,19 @@ const App = (() => {
         const actions = document.createElement('div');
         actions.style.cssText = 'display:flex; flex-direction:column; gap:8px;';
 
+        const isGameActive = (Board.getMoveCount() > 0);
         const restoreBtn = document.createElement('button');
         restoreBtn.className = 'btn btn-gold btn-restore';
         restoreBtn.dataset.id = String(s.id ?? '');
         restoreBtn.style.cssText = 'padding:4px 12px; font-size:0.7rem;';
         restoreBtn.textContent = 'Restore';
-        restoreBtn.addEventListener('click', () => _restoreGame(restoreBtn.dataset.id));
+        if(isGameActive){
+          restoreBtn.disabled = true;
+          restoreBtn.style.opacity = '0.5';
+          restoreBtn.title = "Finish current game to restore this one";
+        } else {
+          restoreBtn.addEventListener('click', () => _restoreGame(restoreBtn.dataset.id));
+        }
         actions.appendChild(restoreBtn);
 
         const deleteBtn = document.createElement('button');
@@ -1139,10 +1146,12 @@ const App = (() => {
       el.appendChild(empty);
       return;
     }
+    const isGameActive = (Board.getMoveCount() > 0);
     for(const s of saves){
       const item = document.createElement('div');
-      item.className = 'save-item';
+      item.className = 'save-item' + (isGameActive ? ' disabled' : '');
       item.dataset.id = String(s.id ?? '');
+      if(isGameActive) item.title = "Finish current game to restore";
 
       const mode = document.createElement('div');
       mode.className = 'save-mode';
@@ -1162,7 +1171,9 @@ const App = (() => {
       meta.textContent = `${moveCount} moves${s.accuracy ? ` · ${s.accuracy}% acc` : ''}`;
       item.appendChild(meta);
 
-      item.addEventListener('click',()=>_restoreGame(item.dataset.id));
+      if(!isGameActive) {
+        item.addEventListener('click',()=>_restoreGame(item.dataset.id));
+      }
       el.appendChild(item);
     }
   }

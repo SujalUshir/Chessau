@@ -883,19 +883,26 @@ def _is_book_move(move_number, eval_before):
         return False
     return move_number <= 10 and abs(eval_before) <= 30
 
-def _payload(with_sf=False, precomputed_fen=None):
+def _payload(with_sf=False, precomputed_fen=None, custom_snap=None):
     """
     Build the standard board payload.
-    If precomputed_fen is supplied and matches the current board FEN,
-    the analyze_position cache will be hit (free) instead of spawning SF.
+    If custom_snap is provided, temporarily restore it to compute the full payload.
     """
+    if custom_snap:
+        saved = _snap()
+        _restore(custom_snap)
+        try:
+            # Recursive call with custom_snap=None to avoid infinite loop
+            return _payload(with_sf=with_sf)
+        finally:
+            _restore(saved)
+
     eng_eval = _engine_eval()
     if with_sf:
-        # Use current board FEN — hits cache if analyze_position was already
-        # called for this position (e.g. inside _build_move_review_entry).
         sf_eval = analyze_position(_fen())["eval_cp"]
     else:
         sf_eval = None
+
     return {
         "board":          engine.board,
         "current_turn":   engine.current_turn,
